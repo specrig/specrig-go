@@ -1,9 +1,10 @@
 // Package waffle is the adapter for a service built on waffle, the Go framework:
-// the layout waffle lays out, its default areas, and the text of specrig.md that is
-// waffle's own.
+// the layout waffle lays out, its default areas, the text of specrig.md that is
+// waffle's own, and the commands that write the harness and the records.
 package waffle
 
 import (
+	"context"
 	_ "embed"
 	"errors"
 	"fmt"
@@ -14,6 +15,9 @@ import (
 
 	"github.com/specrig/specrig-go/cli"
 	"github.com/specrig/specrig-go/rules"
+	"github.com/specrig/specrig-go/waffle/internal/harness"
+	"github.com/specrig/specrig-go/waffle/internal/records"
+	"github.com/specrig/specrig-go/waffle/internal/replacements"
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,8 +33,8 @@ var (
 )
 
 var layout = rules.Layout{
-	"generated": {"tests/surface.yaml", "tests/internal/harness/harness_gen.go", "AGENTS.md", "CLAUDE.md"},
-	"platform":  {"waffle.yaml", "specrig.yaml", "tests/internal/"},
+	"generated": {"tests/surface.yaml", "tests/internal/harness/harness_gen.go", "waffle.md"},
+	"platform":  {"waffle.yaml", "specrig.yaml", "tests/internal/", "AGENTS.md", "CLAUDE.md"},
 	"cases":     {"tests/feature/**/*.feature"},
 	"tests":     {"tests/"},
 }
@@ -44,15 +48,15 @@ func Preset() cli.Preset {
 		Areas:   areas,
 		Slots: map[string]string{
 			"what":     "service",
-			"cut":      "`replacements.allow` in `waffle.yaml`",
-			"validate": "the checks Rule #2 in `AGENTS.md` lists",
-			"boundary": "`replacements.allow` in `waffle.yaml` is enforced by a test in the ordinary suite, " +
+			"cut":      "`replacements.allow` in `specrig.yaml`",
+			"validate": "the checks Rule #2 in `waffle.md` lists",
+			"boundary": "`replacements.allow` in `specrig.yaml` is enforced by a test in the ordinary suite, " +
 				"not by this rule: with the rule off you may no more grant yourself a seam than with it on.",
 			"spec-paths":     "`tests/`, except `tests/internal/`",
-			"platform-paths": "`waffle.yaml`, `specrig.yaml`, `tests/internal/`, `go.mod`",
+			"platform-paths": "`waffle.yaml`, `specrig.yaml`, `tests/internal/`, `go.mod`, `AGENTS.md`",
 			"tasks":          "",
-			"generated": "`tests/surface.yaml` is written by `./waffle surface`, `tests/internal/harness/harness_gen.go` " +
-				"by `go generate ./...`, `AGENTS.md` by `./waffle agents`, `specrig.md` by `go tool specrig agents`, " +
+			"generated": "`tests/surface.yaml` is written by `go tool specrig surface`, `tests/internal/harness/harness_gen.go` " +
+				"by `go generate ./...`, `waffle.md` by `./waffle agents`, `specrig.md` by `go tool specrig agents`, " +
 				"and the structure of `tests/flows.yaml` by every whole run of the suite, in any mode, and never by hand; " +
 				"its `description` fields are yours in any mode.",
 			"tool":      "specrig",
@@ -62,7 +66,23 @@ func Preset() cli.Preset {
 			"binding":   strings.TrimRight(binding, "\n"),
 		},
 		Own: []string{strings.TrimRight(running, "\n")},
+		Commands: []cli.Command{
+			own(harness.New()), own(replacements.New()), own(records.NewSurface()), own(records.NewFlows()),
+		},
+		Init: func() error { return harness.New().Run(context.Background()) },
 	}
+}
+
+type command interface {
+	Code() string
+	Synopsis() string
+	Description() string
+	Run(ctx context.Context, args ...string) error
+}
+
+func own(c command) cli.Command {
+	return cli.Command{Name: c.Code(), Operands: c.Synopsis(), Description: c.Description(),
+		Run: func(args []string) error { return c.Run(context.Background(), args...) }}
 }
 
 // proto follows waffle.yaml's proto_dir, so in a monorepo it lands on the shared

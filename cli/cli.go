@@ -17,6 +17,7 @@ import (
 
 	"github.com/specrig/specrig-go/agents"
 	"github.com/specrig/specrig-go/rules"
+	"gopkg.in/yaml.v3"
 )
 
 // Preset is what a framework's adapter hands the core.
@@ -32,6 +33,21 @@ type Preset struct {
 	Slots map[string]string
 	// Own are the sections of specrig.md after Rule #11.
 	Own []string
+	// Commands are the adapter's own, beside init, rules and agents.
+	Commands []Command
+	// Init lays out what the stack's suite needs, after init's own files, where
+	// the process works.
+	Init func() error
+}
+
+// Command is one of an adapter's own. It works where the process does: Run's
+// dir is for rules and agents.
+type Command struct {
+	Name string
+	// Operands follow the name in the usage.
+	Operands    string
+	Description string
+	Run         func(args []string) error
 }
 
 const marker = "specrig.yaml"
@@ -39,14 +55,26 @@ const marker = "specrig.yaml"
 var core = []string{"writer", "version", "modes", "areas", "platform-files", "config"}
 
 func usage(p Preset) string {
-	return fmt.Sprintf(`%[1]s agents
-%[1]s rules
+	var b strings.Builder
+	fmt.Fprintf(&b, "%[1]s init\n%[1]s agents\n%[1]s rules\n", p.Tool)
+	for _, c := range p.Commands {
+		fmt.Fprintln(&b, strings.TrimSpace(p.Tool+" "+c.Name+" "+c.Operands))
+	}
+	fmt.Fprintf(&b, `
+init lays the service out for specrig: %[1]s naming this tool as its guard,
+an AGENTS.md that brings specrig.md in, specrig.md, CLAUDE.md as a link to
+AGENTS.md, and what the suite needs. No file that exists is rewritten but
+specrig.md, and an AGENTS.md lacking the line, which gets it at its end.
 
-agents writes specrig.md, Rule #11 for this service with the areas %[2]s
+agents writes specrig.md, Rule #11 for this service with the areas %[1]s
 declares, and fails while AGENTS.md does not bring it in. rules prints the Rule #11
 modes, this service's layout and its areas as JSON, for the plugin that enforces
-the modes. The areas are the defaults and those %[2]s declares under
-agents.areas.`, p.Tool, marker)
+the modes. The areas are the defaults and those %[1]s declares under
+agents.areas.`, marker)
+	for _, c := range p.Commands {
+		fmt.Fprintf(&b, "\n\n%s: %s", c.Name, c.Description)
+	}
+	return b.String()
 }
 
 // Main runs the command args name in the working directory, and is the exit code.
@@ -61,7 +89,7 @@ func Main(args []string, p Preset) int {
 
 // Run is Main for the service in dir, writing to stdout and stderr.
 func Run(dir string, args []string, p Preset, stdout, stderr io.Writer) int {
-	commands := map[string]func(string, Preset, io.Writer) error{"agents": writeAgents, "rules": printRules}
+	commands := map[string]func(string, Preset, io.Writer) error{"init": initService, "agents": writeAgents, "rules": printRules}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, usage(p))
 		return 1
@@ -71,6 +99,13 @@ func Run(dir string, args []string, p Preset, stdout, stderr io.Writer) int {
 		return 0
 	}
 	command, ok := commands[args[0]]
+	if own := slices.IndexFunc(p.Commands, func(c Command) bool { return c.Name == args[0] }); !ok && own >= 0 {
+		if err := p.Commands[own].Run(args[1:]); err != nil {
+			fmt.Fprintf(stderr, "Error: %v\n", err)
+			return 1
+		}
+		return 0
+	}
 	if !ok {
 		fmt.Fprintf(stderr, "Unknown command %q\n\n%s\n", args[0], usage(p))
 		return 1
@@ -144,6 +179,101 @@ func writeAgents(dir string, p Preset, out io.Writer) error {
 		return fmt.Errorf("AGENTS.md does not bring specrig.md in: add the line\n\n%s\n\nwhere an agent reads it before the first edit", reference)
 	}
 	return nil
+}
+
+func initService(dir string, p Preset, out io.Writer) error {
+	reference, err := agents.Reference(p.Slots["what"])
+	if err != nil {
+		return err
+	}
+	for _, step := range []func() (string, error){
+		func() (string, error) { return writeMarker(dir, p) },
+		func() (string, error) { return bringIn(dir, p, reference) },
+		func() (string, error) { return writeSpecrigMd(dir, p) },
+		func() (string, error) { return linkClaudeMd(dir) },
+	} {
+		line, err := step()
+		if err != nil {
+			return err
+		}
+		if line != "" {
+			fmt.Fprintln(out, line)
+		}
+	}
+	if p.Init == nil {
+		return nil
+	}
+	return p.Init()
+}
+
+func writeMarker(dir string, p Preset) (string, error) {
+	guard := "guard: [" + strings.Join(strings.Fields(p.Tool), ", ") + "]"
+	file := filepath.Join(dir, marker)
+	body, err := os.ReadFile(file)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "+ " + marker, os.WriteFile(file, []byte(guard+"\n"), 0o644)
+	case err != nil:
+		return "", err
+	}
+	var named struct {
+		Guard any `yaml:"guard"`
+	}
+	if err := yaml.Unmarshal(body, &named); err != nil {
+		return "", fmt.Errorf("%s: %w", marker, err)
+	}
+	if named.Guard == nil {
+		return fmt.Sprintf("= %s — kept; it names no guard: add `%s` for the plugin to ask this tool", marker, guard), nil
+	}
+	return "= " + marker + " — kept", nil
+}
+
+func bringIn(dir string, p Preset, reference string) (string, error) {
+	file := filepath.Join(dir, "AGENTS.md")
+	text, err := os.ReadFile(file)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		_, parent := os.Stat(filepath.Join(dir, "..", "AGENTS.md"))
+		return "+ AGENTS.md", os.WriteFile(file, []byte(stub(filepath.Base(dir), p.Slots["what"], reference, parent == nil)), 0o644)
+	case err != nil:
+		return "", err
+	}
+	agentsMd := string(text)
+	left := ""
+	if agents.Verdict(&agentsMd) == "stale" {
+		left = fmt.Sprintf("; it still carries Rule #11, which specrig.md holds now: keep the %s's own sections in it and delete the rest", p.Slots["what"])
+	}
+	if agents.References(agentsMd) {
+		return "= AGENTS.md — kept" + left, nil
+	}
+	gap := "\n\n"
+	switch {
+	case agentsMd == "":
+		gap = ""
+	case strings.HasSuffix(agentsMd, "\n"):
+		gap = "\n"
+	}
+	return "~ AGENTS.md: the line that brings specrig.md in, at its end" + left,
+		os.WriteFile(file, []byte(agentsMd+gap+reference+"\n"), 0o644)
+}
+
+func stub(name, what, reference string, parent bool) string {
+	sections := []string{"# AGENTS.md", "Instructions for AI coding agents working in " + name + ".", reference}
+	if parent {
+		sections = append(sections, "The repository's rules in `../AGENTS.md` hold here too — ownership, the\n"+
+			"notation for specifications, a neighbour's rules are not reproduced.")
+	}
+	sections = append(sections, "## This "+what, "<!-- What "+name+" is for, who calls it, which neighbours it calls and what it\n"+
+		"publishes. Written by the person who owns the platform. -->")
+	return strings.Join(sections, "\n\n") + "\n"
+}
+
+func linkClaudeMd(dir string) (string, error) {
+	link := filepath.Join(dir, "CLAUDE.md")
+	if _, err := os.Lstat(link); !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	}
+	return "+ CLAUDE.md → AGENTS.md", os.Symlink("AGENTS.md", link)
 }
 
 func writeSpecrigMd(dir string, p Preset) (string, error) {

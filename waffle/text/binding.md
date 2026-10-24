@@ -20,9 +20,9 @@ does not read the other.
 
 #### What may be replaced is given, not chosen
 
-`replacements.allow` in `waffle.yaml` is a permission list: what it does not
+`replacements.allow` in `specrig.yaml` is a permission list: what it does not
 name may not be replaced, in any form — mock, spy, fake or no-op.
-`./waffle tests:replacements` prints every seam, granted or not; it is a menu for
+`go tool specrig replacements` prints every seam, granted or not; it is a menu for
 the platform owner, not a licence.
 
 **A missing or empty `replacements:` key grants nothing** — not "unrestricted",
@@ -30,10 +30,10 @@ and not an oversight you may repair. Check it before writing cases: if the list
 and the contract do not meet, **stop there and say so**.
 
 `TestReplacementsStayInsideTheList` fails in the ordinary suite on every field
-the list does not cover; `./waffle tests:replacements check` prints the same —
+the list does not cover; `go tool specrig replacements check` prints the same —
 run it before handing over and paste what it said. **Its failure names the seams
 you need, not an edit to make:** the hand-over is the red output plus the seams
-you are asking for. Putting them into `waffle.yaml` turns the check into a
+you are asking for. Putting them into `specrig.yaml` turns the check into a
 formality that agrees with whatever you did.
 
 `tests/internal/harness/` is read-only too. It supplies what is a condition of
@@ -55,7 +55,7 @@ An outage is not a replacement: the step calls `app.Postgres.FailWith(nil)` —
 `Redis` and `Publisher` likewise — and the next `Reset` heals it. Do not ask for
 a grant on the client to fake one.
 
-`docs/conventions/component-harness.md` in waffle has the catalogue — which
+`docs/harness.md` in specrig-go's waffle adapter has the catalogue — which
 recorder exists for which seam — and the reasoning behind a particular grant.
 Read it to understand what you were given; it is not a licence to change it.
 
@@ -80,15 +80,15 @@ around it. The recognisable cases:
 - **the cut removes what the case was meant to exercise** — a repository
   replaced by a mock makes the test check the mock's SQL, not the schema's.
 
-**Do not build the infrastructure by hand.** `./waffle tests:harness` generates
+**Do not build the infrastructure by hand.** `go tool specrig harness` generates
 `tests/internal/harness/harness_gen.go` from the container — the database and its
 migrations, the transport and a typed client per handler, the interceptor order,
 a dead connection for every `ClientConnInterface` seam, a typed field for every
 variable the boot reads — and `go generate ./...` regenerates it, in any mode;
 that change is not a platform edit. Never edit that file. A run needs no
 configuration either — with no DSN set, a postgres container is started and the
-next run reuses it, so do not ask for one. `docs/conventions/component-harness.md`
-in waffle is the reference.
+next run reuses it, so do not ask for one. `docs/harness.md` in specrig-go's waffle
+adapter is the reference.
 
 **The boot smoke test comes before any case**, and the first run writes it: it
 brings the resources up, boots on an empty cut and, where the service has a

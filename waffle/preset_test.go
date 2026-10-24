@@ -64,10 +64,10 @@ func TestSpecrigMdHasEverySlotFilledAndNamesNoMakeTarget(t *testing.T) {
 	written, _ := os.ReadFile(filepath.Join(dir, "specrig.md"))
 	for _, want := range []string{
 		"`go tool specrig agents` writes this file with `github.com/specrig/specrig-go/waffle` ",
-		"with `replacements.allow` in `waffle.yaml` read before any of them",
+		"with `replacements.allow` in `specrig.yaml` read before any of them",
 		"| proto | `api/proto/` | spec, platform | — |",
 		"| steps | `tests/*_test.go` | as the table says | platform |",
-		"`waffle.yaml`, `specrig.yaml` and `tests/internal/`",
+		"`waffle.yaml`, `specrig.yaml`, `tests/internal/`, `AGENTS.md` and `CLAUDE.md`",
 		"#### When the cut does not work, stop",
 		"## Running\n",
 	} {

@@ -3,8 +3,10 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -250,9 +252,109 @@ func TestCommandsTakeNoArguments(t *testing.T) {
 	}
 }
 
-func TestHelpIsTheUsage(t *testing.T) {
-	if got := runIn(t.TempDir(), preset, "--help"); got.code != 0 || !strings.HasPrefix(got.stdout, "go tool specrig agents\ngo tool specrig rules\n") {
+func TestInitLaysTheServiceOutThenTheStacksPart(t *testing.T) {
+	dir := t.TempDir()
+	p := preset
+	inits := 0
+	p.Init = func() error { inits++; return nil }
+
+	got := runIn(dir, p, "init")
+	if want := "+ specrig.yaml\n+ AGENTS.md\n+ specrig.md\n+ CLAUDE.md → AGENTS.md\n"; got.code != 0 || got.stdout != want || inits != 1 {
+		t.Fatalf("%+v, the stack's part ran %d times", got, inits)
+	}
+	if marker, _ := os.ReadFile(filepath.Join(dir, "specrig.yaml")); string(marker) != "guard: [go, tool, specrig]\n" {
+		t.Errorf("specrig.yaml: %q", marker)
+	}
+	stub, _ := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	if !strings.HasPrefix(string(stub), "# AGENTS.md\n\nInstructions for AI coding agents working in "+filepath.Base(dir)+".\n\n"+reference(t)+"\n\n## This service\n") {
+		t.Errorf("AGENTS.md:\n%s", stub)
+	}
+	if strings.Contains(string(stub), "../AGENTS.md") {
+		t.Error("the stub names a repository's rules there are none of")
+	}
+	if link, err := os.Readlink(filepath.Join(dir, "CLAUDE.md")); err != nil || link != "AGENTS.md" {
+		t.Errorf("CLAUDE.md: %q, %v", link, err)
+	}
+	if again := runIn(dir, p, "agents"); again.code != 0 {
+		t.Errorf("agents after init: %+v", again)
+	}
+
+	got = runIn(dir, p, "init")
+	if want := "= specrig.yaml — kept\n= AGENTS.md — kept\n= specrig.md\n"; got.code != 0 || got.stdout != want || inits != 2 {
+		t.Errorf("again: %+v, the stack's part ran %d times", got, inits)
+	}
+
+	p.Init = func() error { return errors.New("no container") }
+	if got := runIn(dir, p, "init"); got.code != 1 || got.stderr != "Error: no container\n" {
+		t.Errorf("the stack's part failing: %+v", got)
+	}
+}
+
+func TestInitKeepsWhatTheServiceWroteAndSaysWhatIsMissing(t *testing.T) {
+	dir := service(t, map[string]string{
+		"specrig.yaml": "agents:\n  areas:\n    gen:\n      paths: [gen/]\n      modes: []\n",
+		"AGENTS.md":    "ours",
+		"CLAUDE.md":    "theirs\n",
+	})
+
+	got := runIn(dir, preset, "init")
+	want := "= specrig.yaml — kept; it names no guard: add `guard: [go, tool, specrig]` for the plugin to ask this tool\n" +
+		"~ AGENTS.md: the line that brings specrig.md in, at its end\n+ specrig.md\n"
+	if got.code != 0 || got.stdout != want {
 		t.Errorf("%+v", got)
+	}
+	if text, _ := os.ReadFile(filepath.Join(dir, "AGENTS.md")); string(text) != "ours\n\n"+reference(t)+"\n" {
+		t.Errorf("AGENTS.md: %q", text)
+	}
+	if text, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md")); string(text) != "theirs\n" {
+		t.Errorf("CLAUDE.md: %q", text)
+	}
+
+	stale := service(t, map[string]string{"AGENTS.md": "# AGENTS.md\n\n## Rule #11 — specification before code\n"})
+	if got := runIn(stale, preset, "init"); !strings.Contains(got.stdout, "~ AGENTS.md: the line that brings specrig.md in, at its end; "+
+		"it still carries Rule #11, which specrig.md holds now: keep the service's own sections in it and delete the rest\n") {
+		t.Errorf("stale: %+v", got)
+	}
+}
+
+func TestInitsStubDefersToTheRepositorysAGENTSmd(t *testing.T) {
+	root := service(t, map[string]string{"AGENTS.md": "# Repository\n"})
+	dir := filepath.Join(root, "billing")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := runIn(dir, preset, "init"); got.code != 0 {
+		t.Fatalf("%+v", got)
+	}
+	stub, _ := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	if !strings.Contains(string(stub), "working in billing.") || !strings.Contains(string(stub), "The repository's rules in `../AGENTS.md` hold here too") {
+		t.Errorf("AGENTS.md:\n%s", stub)
+	}
+}
+
+func TestHelpIsTheUsage(t *testing.T) {
+	if got := runIn(t.TempDir(), preset, "--help"); got.code != 0 || !strings.HasPrefix(got.stdout, "go tool specrig init\ngo tool specrig agents\ngo tool specrig rules\n") {
+		t.Errorf("%+v", got)
+	}
+}
+
+func TestAnAdaptersOwnCommandRunsWithItsOperandsAndIsInTheUsage(t *testing.T) {
+	p := preset
+	var got []string
+	p.Commands = []Command{{Name: "harness", Operands: "[check]", Description: "writes the harness",
+		Run: func(args []string) error { got = args; return nil }}}
+
+	if r := runIn(t.TempDir(), p, "harness", "check"); r.code != 0 || !slices.Equal(got, []string{"check"}) {
+		t.Errorf("%+v, ran with %v", r, got)
+	}
+	if r := runIn(t.TempDir(), p, "--help"); !strings.Contains(r.stdout, "go tool specrig harness [check]\n") ||
+		!strings.Contains(r.stdout, "harness: writes the harness") {
+		t.Errorf("usage:\n%s", r.stdout)
+	}
+	p.Commands[0].Run = func([]string) error { return errors.New("no container") }
+	if r := runIn(t.TempDir(), p, "harness"); r.code != 1 || r.stderr != "Error: no container\n" {
+		t.Errorf("%+v", r)
 	}
 }
 

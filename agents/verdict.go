@@ -33,6 +33,12 @@ func Verdict(agents *string) string {
 	return "unreferenced"
 }
 
+// References says whether AGENTS.md brings specrig.md in, stale or not.
+func References(agents string) bool {
+	_, referenced := scan(agents)
+	return referenced
+}
+
 func scan(text string) (stale, referenced bool) {
 	var char byte
 	length := 0
