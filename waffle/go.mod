@@ -3,7 +3,7 @@ module github.com/specrig/specrig-go/waffle
 go 1.27.0
 
 require (
-	github.com/specrig/specrig-go v0.0.0-20261024182538-d3461d642c90
+	github.com/specrig/specrig-go v0.1.0
 	gitlab.com/gorib/amqp v1.9.3
 	gitlab.com/gorib/env v1.0.1
 	gitlab.com/gorib/failure v1.4.0
@@ -24,9 +24,9 @@ require (
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/pborman/getopt/v2 v2.2.0 // indirect
 	github.com/rabbitmq/amqp091-go v1.14.0 // indirect
-	gitlab.com/gorib/grpc v1.7.0 // indirect
+	gitlab.com/gorib/grpc v1.7.1 // indirect
 	gitlab.com/gorib/hilton v1.2.3 // indirect
-	gitlab.com/gorib/http v1.12.7 // indirect
+	gitlab.com/gorib/http v1.13.0 // indirect
 	gitlab.com/gorib/pry v1.4.2 // indirect
 	gitlab.com/gorib/session v1.2.0 // indirect
 	gitlab.com/gorib/whisk v1.4.0 // indirect
