@@ -3,9 +3,11 @@ package agents
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/specrig/specrig-go/rules"
 	"gopkg.in/yaml.v3"
 )
 
@@ -89,7 +91,7 @@ func TestAnEmptySlotAloneOnItsLineTakesTheLine(t *testing.T) {
 
 func TestTheModeTableNamesTheCases(t *testing.T) {
 	rows := ModeRows([]string{"tests/feature/**/*.feature"})
-	if !strings.Contains(rows, "| spec | `tests/feature/**/*.feature` |") || strings.Count(rows, "\n") != len(Modes())-1 {
+	if !strings.Contains(rows, "| spec | `tests/feature/**/*.feature` |") || strings.Count(rows, "\n") != len(rules.Modes())-1 {
 		t.Errorf("rows:\n%s", rows)
 	}
 }
@@ -98,7 +100,7 @@ func TestTheAreaTableSaysHowEachAreaOpens(t *testing.T) {
 	want := "| gomod | `go.mod` | platform | redgreen |\n" +
 		"| steps | `tests/*_test.go` | as the table says | platform |\n" +
 		"| pb | `api/pb/` | no mode | — |"
-	if got := AreaRows([]Area{
+	if got := AreaRows([]rules.Area{
 		{Name: "gomod", Paths: []string{"go.mod"}, Modes: []string{"platform"}, Grant: []string{"redgreen"}},
 		{Name: "steps", Paths: []string{"tests/*_test.go"}, Grant: []string{"platform"}},
 		{Name: "pb", Paths: []string{"api/pb/"}, Modes: []string{}},
@@ -108,12 +110,48 @@ func TestTheAreaTableSaysHowEachAreaOpens(t *testing.T) {
 }
 
 func TestAnAreaTheOtherDecidesForIsLeftOutOfTheTable(t *testing.T) {
-	got := AreaRows([]Area{
+	got := AreaRows([]rules.Area{
 		{Name: "deps", Paths: []string{"package.json", "./package-lock.json"}, Modes: []string{"platform"}},
 		{Name: "lock", Paths: []string{"package-lock.json"}, Modes: []string{"redgreen"}},
 		{Name: "proto", Paths: []string{"package.json"}, Modes: []string{"spec"}},
 	})
 	if want := "| deps | `package.json`, `./package-lock.json` | platform | — |"; got != want {
 		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestSpecrigMdIsThePartsInTheirOrderAndThenTheStacksOwn(t *testing.T) {
+	text, err := SpecrigMd(filled(), []string{"## Running", "`make test` runs the suite."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := func(s string) int { return strings.Index(text, strings.TrimRight(s, "\n")) }
+	var order []int
+	for _, part := range []string{"header", "contributing", "short", "rule11"} {
+		body, err := Render(part, filled())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if part == "short" {
+			order = append(order, at("## The short version"))
+		}
+		order = append(order, at(body))
+	}
+	order = append(order, at("## Running"))
+	if slices.Contains(order, -1) || !slices.IsSorted(order) {
+		t.Errorf("the sections are at %v:\n%s", order, text)
+	}
+	if !strings.HasSuffix(text, "## Running\n\n`make test` runs the suite.\n") || strings.Contains(text, "\n\n\n") {
+		t.Errorf("it ends\n%s", text[len(text)-200:])
+	}
+}
+
+func TestTheReferenceBringsSpecrigMdIn(t *testing.T) {
+	line, err := Reference("service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := "# AGENTS.md\n\n" + line + "\n"; Verdict(&text) != "ok" || strings.Contains(line, "\n") {
+		t.Errorf("%q", line)
 	}
 }

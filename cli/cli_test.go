@@ -1,0 +1,266 @@
+package cli
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/specrig/specrig-go/agents"
+	"github.com/specrig/specrig-go/rules"
+	"gopkg.in/yaml.v3"
+)
+
+var preset = Preset{
+	Tool:    "go tool specrig",
+	Version: "`example.com/specrig` v0.0.0",
+	Layout: rules.Layout{
+		"generated": {"tests/surface.yaml"},
+		"platform":  {"tests/internal/", "specrig.yaml", "AGENTS.md", "CLAUDE.md"},
+		"cases":     {"tests/feature/**/*.feature"},
+		"tests":     {"tests/"},
+	},
+	Areas: func(string) ([]rules.Area, error) {
+		return []rules.Area{
+			{Name: "gomod", Paths: []string{"go.mod", "go.sum"}, Modes: []string{"platform"}, Grant: []string{"redgreen"}},
+			{Name: "steps", Paths: []string{"tests/steps/"}, Grant: []string{"platform"}},
+		}, nil
+	},
+	Slots: map[string]string{
+		"what": "service", "cut": "`tests/internal/cut.yaml`", "validate": "`go test ./...`",
+		"boundary": "What the harness stands in for is the platform's.", "spec-paths": "`tests/feature/`, `tests/steps/`",
+		"platform-paths": "`tests/internal/`, `specrig.yaml`, `go.mod`, `AGENTS.md`", "tasks": "", "generated": "",
+		"tool": "specrig", "cases": "`.feature` files in `tests/feature/`", "contracts": "", "describes": "",
+		"binding": "Bind at the edge of the service.",
+	},
+	Own: []string{"## Running", "`go test ./...` runs the suite."},
+}
+
+type ran struct {
+	code   int
+	stdout string
+	stderr string
+}
+
+func service(t *testing.T, files map[string]string) string {
+	dir := t.TempDir()
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func runIn(dir string, p Preset, args ...string) ran {
+	var stdout, stderr bytes.Buffer
+	code := run(dir, args, p, &stdout, &stderr)
+	return ran{code, stdout.String(), stderr.String()}
+}
+
+func reference(t *testing.T) string {
+	line, err := agents.Reference("service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return line
+}
+
+func TestRulesPrintTheTableTheLayoutAndTheAreasOnOneLine(t *testing.T) {
+	got := runIn(service(t, map[string]string{"specrig.yaml": "agents:\n  areas:\n    gen:\n      paths: [gen/]\n      modes: []\n"}), preset, "rules")
+	if got.code != 0 || strings.Count(got.stdout, "\n") != 1 {
+		t.Fatalf("%+v", got)
+	}
+	var doc struct {
+		Specrig string `json:"specrig"`
+		Modes   []struct {
+			Name   string `json:"name"`
+			Allows string `json:"allows"`
+		} `json:"modes"`
+		Classes []struct {
+			Name     string   `json:"name"`
+			Patterns []string `json:"patterns"`
+		} `json:"classes"`
+		Areas []map[string]any `json:"areas"`
+	}
+	if err := json.Unmarshal([]byte(got.stdout), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Specrig != "rules/1" || doc.Modes[0].Allows != "`tests/feature/**/*.feature`" || doc.Classes[2].Name != "platform" ||
+		strings.Join(doc.Classes[2].Patterns, " ") != "tests/internal/ specrig.yaml AGENTS.md CLAUDE.md" {
+		t.Errorf("%s", got.stdout)
+	}
+	var names []string
+	for _, a := range doc.Areas {
+		names = append(names, a["name"].(string))
+	}
+	if strings.Join(names, " ") != "gen gomod steps" {
+		t.Errorf("areas %v", names)
+	}
+}
+
+func TestRulesWithoutAMarkerAreTheDefaults(t *testing.T) {
+	got := runIn(t.TempDir(), preset, "rules")
+	if got.code != 0 || !strings.Contains(got.stdout, `"areas":[{"name":"gomod","paths":["go.mod","go.sum"],"modes":["platform"],"grant":["redgreen"]},{"name":"steps","paths":["tests/steps/"],"grant":["platform"]}]`) {
+		t.Errorf("%+v", got)
+	}
+}
+
+func TestRulesTakeAndRefuseTheMarkersAsTheProtocolDoes(t *testing.T) {
+	files, err := filepath.Glob("../internal/protocol/fixtures/markers/*.yaml")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no fixtures: %v", err)
+	}
+	for _, file := range files {
+		body, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fixture struct {
+			Specrig string `yaml:"specrig"`
+			Cases   []struct {
+				Name   string `yaml:"name"`
+				Marker string `yaml:"marker"`
+				Error  string `yaml:"error"`
+			} `yaml:"cases"`
+		}
+		if err := yaml.Unmarshal(body, &fixture); err != nil || fixture.Specrig != "markers-fixtures/1" {
+			t.Fatalf("%s: %s, %v", file, fixture.Specrig, err)
+		}
+		for _, c := range fixture.Cases {
+			got := runIn(service(t, map[string]string{"specrig.yaml": c.Marker}), preset, "rules")
+			switch {
+			case c.Error == "" && got.code != 0:
+				t.Errorf("%s: refused: %s", c.Name, got.stderr)
+			case c.Error != "" && (got.code != 1 || !strings.HasPrefix(got.stderr, "Error: ") || !strings.Contains(got.stderr, c.Error)):
+				t.Errorf("%s: want an error naming %s, got %+v", c.Name, c.Error, got)
+			}
+		}
+	}
+}
+
+func TestAMarkerThatIsNotYAMLIsNamed(t *testing.T) {
+	got := runIn(service(t, map[string]string{"specrig.yaml": "agents: [\n"}), preset, "rules")
+	if got.code != 1 || !strings.HasPrefix(got.stderr, "Error: specrig.yaml: ") {
+		t.Errorf("%+v", got)
+	}
+}
+
+func TestALayoutFillingNoClassIsRefused(t *testing.T) {
+	p := preset
+	p.Layout = rules.Layout{"platfrom": {"tests/internal/"}}
+	if got := runIn(t.TempDir(), p, "rules"); got.code != 1 || !strings.Contains(got.stderr, `"platfrom"`) {
+		t.Errorf("%+v", got)
+	}
+}
+
+func TestAgentsWritesSpecrigMdAndSaysWhetherItChanged(t *testing.T) {
+	dir := service(t, map[string]string{"AGENTS.md": "# AGENTS.md\n\n" + reference(t) + "\n"})
+
+	if got := runIn(dir, preset, "agents"); got.code != 0 || got.stdout != "+ specrig.md\n" {
+		t.Fatalf("%+v", got)
+	}
+	written, _ := os.ReadFile(filepath.Join(dir, "specrig.md"))
+	for _, want := range []string{
+		"# specrig.md\n\n",
+		"`go tool specrig agents`",
+		"`example.com/specrig` v0.0.0",
+		"| spec | `tests/feature/**/*.feature` |",
+		"| gomod | `go.mod`, `go.sum` | platform | redgreen |",
+		"`tests/internal/`, `specrig.yaml`, `AGENTS.md` and `CLAUDE.md`",
+		"## The short version",
+		"## Running\n\n`go test ./...` runs the suite.\n",
+	} {
+		if !strings.Contains(string(written), want) {
+			t.Errorf("specrig.md lacks %q", want)
+		}
+	}
+	if strings.Contains(string(written), "{{") {
+		t.Error("specrig.md leaves a slot")
+	}
+
+	if got := runIn(dir, preset, "agents"); got.code != 0 || got.stdout != "= specrig.md\n" {
+		t.Errorf("again: %+v", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "specrig.md"), []byte("edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := runIn(dir, preset, "agents"); got.code != 0 || got.stdout != "~ specrig.md\n" {
+		t.Errorf("after an edit: %+v", got)
+	}
+	if again, _ := os.ReadFile(filepath.Join(dir, "specrig.md")); string(again) != string(written) {
+		t.Error("the edit stayed")
+	}
+}
+
+func TestAgentsFailsWhileAGENTSmdDoesNotBringSpecrigMdInAndWritesItAllTheSame(t *testing.T) {
+	dir := service(t, map[string]string{"AGENTS.md": "ours\n"})
+
+	got := runIn(dir, preset, "agents")
+	if got.code != 1 || got.stdout != "+ specrig.md\n" ||
+		!strings.HasPrefix(got.stderr, "Error: AGENTS.md does not bring specrig.md in: add the line\n\n"+reference(t)+"\n\n") {
+		t.Errorf("%+v", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "specrig.md")); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestAgentsSaysWhatIsLeftOfAnAGENTSmdThatStillCarriesRule11(t *testing.T) {
+	dir := service(t, map[string]string{"AGENTS.md": "# AGENTS.md\n\n" + reference(t) + "\n\n## Rule #11 — specification before code\n"})
+
+	got := runIn(dir, preset, "agents")
+	if want := "Error: AGENTS.md still carries Rule #11, which specrig.md holds now: keep the service's own sections in it and delete the rest\n"; got.code != 1 || got.stderr != want {
+		t.Errorf("%+v", got)
+	}
+}
+
+func TestAgentsWritesNothingWhereThereIsNoAGENTSmd(t *testing.T) {
+	dir := t.TempDir()
+
+	got := runIn(dir, preset, "agents")
+	if got.code != 1 || !strings.HasPrefix(got.stderr, "Error: there is no AGENTS.md here") || !strings.Contains(got.stderr, reference(t)) {
+		t.Errorf("%+v", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "specrig.md")); !os.IsNotExist(err) {
+		t.Errorf("specrig.md: %v", err)
+	}
+}
+
+func TestAPresetFillingASlotTheCoreFillsIsRefused(t *testing.T) {
+	p := preset
+	p.Slots = map[string]string{"modes": "| spec | anything |"}
+	got := runIn(service(t, map[string]string{"AGENTS.md": reference(t) + "\n"}), p, "agents")
+	if got.code != 1 || !strings.Contains(got.stderr, "the preset fills the slot modes") {
+		t.Errorf("%+v", got)
+	}
+}
+
+func TestACommandItDoesNotHaveIsNamed(t *testing.T) {
+	if got := runIn(t.TempDir(), preset, "guard"); got.code != 1 || !strings.HasPrefix(got.stderr, "Unknown command \"guard\"\n\n") {
+		t.Errorf("%+v", got)
+	}
+}
+
+func TestCommandsTakeNoArguments(t *testing.T) {
+	if got := runIn(t.TempDir(), preset, "rules", "."); got.code != 1 || !strings.HasPrefix(got.stderr, "Error: rules takes no arguments") {
+		t.Errorf("%+v", got)
+	}
+}
+
+func TestHelpIsTheUsage(t *testing.T) {
+	if got := runIn(t.TempDir(), preset, "--help"); got.code != 0 || !strings.HasPrefix(got.stdout, "go tool specrig agents\ngo tool specrig rules\n") {
+		t.Errorf("%+v", got)
+	}
+}
+
+func TestVersionIsTheModulesTheBinaryWasBuiltWith(t *testing.T) {
+	if got := Version("gopkg.in/yaml.v3"); got != "v3.0.1" {
+		t.Errorf("yaml.v3: %q", got)
+	}
+	if got := Version("example.com/none"); got != "" {
+		t.Errorf("none: %q", got)
+	}
+}

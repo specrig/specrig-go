@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/specrig/specrig-go/internal/protocol"
+	"github.com/specrig/specrig-go/rules"
 )
 
 var parts = []string{"header", "contributing", "short", "rule11", "reference"}
@@ -77,18 +78,40 @@ func Unknown(slots map[string]string) []string {
 	return unknown
 }
 
+// SpecrigMd is specrig.md whole: the parts in agents/1's order, then the stack's
+// own sections.
+func SpecrigMd(slots map[string]string, own []string) (string, error) {
+	var sections []string
+	for _, part := range []string{"header", "contributing", "short", "rule11"} {
+		text, err := Render(part, slots)
+		if err != nil {
+			return "", err
+		}
+		if part == "short" {
+			sections = append(sections, "## The short version")
+		}
+		sections = append(sections, strings.TrimRight(text, "\n"))
+	}
+	return strings.Join(append(sections, own...), "\n\n") + "\n", nil
+}
+
+// Reference is the line that brings specrig.md into AGENTS.md.
+func Reference(what string) (string, error) {
+	text, err := Render("reference", map[string]string{"what": what})
+	return strings.TrimRight(text, "\n"), err
+}
+
 // ModeRows are the mode table's rows, the cases' patterns in spec's.
 func ModeRows(cases []string) string {
-	rows := make([]string, 0, len(modes))
-	for _, m := range modes {
-		allows := strings.ReplaceAll(m.Allows, "{{cases}}", ticked(cases))
-		rows = append(rows, fmt.Sprintf("| %s | %s |", m.Name, allows))
+	var rows []string
+	for _, m := range rules.Modes() {
+		rows = append(rows, fmt.Sprintf("| %s | %s |", m.Name, rules.Allows(m, cases)))
 	}
 	return strings.Join(rows, "\n")
 }
 
 // AreaRows are the area table's rows, by the paths each area decides.
-func AreaRows(areas []Area) string {
+func AreaRows(areas []rules.Area) string {
 	var rows []string
 	for _, a := range areas {
 		paths := claimed(areas, a)
