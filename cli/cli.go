@@ -56,10 +56,11 @@ func Main(args []string, p Preset) int {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return 1
 	}
-	return run(dir, args, p, os.Stdout, os.Stderr)
+	return Run(dir, args, p, os.Stdout, os.Stderr)
 }
 
-func run(dir string, args []string, p Preset, stdout, stderr io.Writer) int {
+// Run is Main for the service in dir, writing to stdout and stderr.
+func Run(dir string, args []string, p Preset, stdout, stderr io.Writer) int {
 	commands := map[string]func(string, Preset, io.Writer) error{"agents": writeAgents, "rules": printRules}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, usage(p))

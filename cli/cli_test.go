@@ -56,7 +56,7 @@ func service(t *testing.T, files map[string]string) string {
 
 func runIn(dir string, p Preset, args ...string) ran {
 	var stdout, stderr bytes.Buffer
-	code := run(dir, args, p, &stdout, &stderr)
+	code := Run(dir, args, p, &stdout, &stderr)
 	return ran{code, stdout.String(), stderr.String()}
 }
 

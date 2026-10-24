@@ -3,6 +3,7 @@ COPY := internal/protocol
 
 test:
 	go test ./...
+	go -C waffle test ./...
 
 protocol:
 	rm -rf $(COPY)/modes.yaml $(COPY)/agents $(COPY)/fixtures
