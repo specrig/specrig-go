@@ -164,13 +164,13 @@ Every field of `Replacements` is a seam — a place a test *may* fill in instead
 letting the container build it, if `replacements.allow` in `specrig.yaml` grants
 it. See [DI overview](https://gitlab.com/gorib/waffle/-/blob/main/docs/di/overview.md#testing-with-the-container) for the
 mechanics and
-[tests:replacements](commands.md#go-tool-specrig-replacements) for the
+[`go tool specrig replacements`](commands.md#go-tool-specrig-replacements) for the
 tooling.
 
 ### Cut at the leaves
 
 Where to cut is a question with its own page —
-[conventions/component-harness](harness.md#choosing-where-to-cut) has
+[Component harness](harness.md#choosing-where-to-cut) has
 the `# leaf` marker, the two directions in which it misses the real process
 boundary, and which stand-in each interface gets. What matters *here* is why the
 specification depends on the answer.
@@ -313,8 +313,8 @@ workflow that gets abandoned at the first step that does not work.
 - Rule #11's modes, `go tool specrig rules`, and the Claude Code plugin that
   enforces them — see [specrig](https://github.com/specrig/specrig).
 - **the component harness**, as libraries — see
-  [conventions/component-harness](harness.md). The resource seam is
-  `waffle/resource`; postgres, redis and elasticsearch are `sql/sqltest`,
+  [Component harness](harness.md). The resource seam is
+  specrig-go's `resource`; postgres, redis and elasticsearch are `sql/sqltest`,
   `redis/redistest` and `elastic/elastictest`; the in-process servers are
   `waffle/tools/grpc.Serve`,
   chaining interceptors with the same `UnaryChain` the daemon uses, and

@@ -40,7 +40,7 @@ the one that finds no `harness.go` beside it — also scaffolds the suite. It
 works from the module root or from anywhere below it, so the `go:generate` line
 in `harness.go` runs it after diogen on every `make generate`. Which files those
 are, and what goes in the one you write, is
-[conventions/component-harness](harness.md#the-generated-file-and-yours).
+[Component harness](harness.md#the-generated-file-and-yours).
 
 Everything in the generated file comes from the container rather than from a
 flag, because a flag would close a set the container already knows:
@@ -106,7 +106,7 @@ one allows nothing, and what it does not name may not be replaced in any form �
 mock, spy, hand-written fake or no-op. **Where to draw that list is not a CLI
 question**, and the whole of the reasoning — what `# leaf` means and where the
 marker misses, which leaves are worth granting, which stand-in each interface
-gets — is [conventions/component-harness](harness.md#choosing-where-to-cut).
+gets — is [Component harness](harness.md#choosing-where-to-cut).
 The rest of this section is what the command itself does.
 
 The check reads every `.go` file in the module and reports the position of each

@@ -11,7 +11,7 @@ service, and by a person — under Rule #11 an agent may not touch
 `tests/internal/` or `specrig.yaml` at all. After this page the scenarios
 themselves are ordinary work anybody does.
 
-[conventions/component-harness](harness.md) is the
+[Component harness](harness.md) is the
 reference for every decision below: what each resource does, why the container
 is reused and the database is not, where to cut. This page does not repeat it —
 it links into it at each step.
@@ -350,7 +350,7 @@ load with no payoff.
 
 | | |
 |---|---|
-| Every decision on this page, argued | [conventions/component-harness](harness.md) |
+| Every decision on this page, argued | [Component harness](harness.md) |
 | Why the specification comes before the code | [conventions/ai-native](ai-native.md) |
 | The protocol an agent follows against this suite | [cli/agents](https://github.com/specrig/protocol/blob/main/specrig-md.md) |
 | `Replacements`, and what has no entry in it | [di/overview](https://gitlab.com/gorib/waffle/-/blob/main/docs/di/overview.md#testing-with-the-container) |
