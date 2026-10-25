@@ -1,0 +1,12 @@
+specrig: surface/1
+service: billing
+publishes:
+  - invoices.issued
+consumes:
+  - orders.placed
+  - payments.settled
+serves:
+  - GET /invoices/{orderId}
+clients:
+  Billing.Acquirer:
+    - POST /payments

@@ -1,0 +1,7 @@
+specrig: surface/1
+service: checkout
+publishes:
+  - orders.placed
+serves:
+  - POST /checkout
+  - POST /checkout/saved

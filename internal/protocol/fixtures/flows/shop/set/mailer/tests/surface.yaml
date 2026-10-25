@@ -1,0 +1,4 @@
+specrig: surface/1
+service: mailer
+consumes:
+  - invoices.*

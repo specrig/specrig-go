@@ -8,9 +8,9 @@ A flow is what happens after one way in: the route, command or message from outs
 |---|---|---|
 | `tests/surface.yaml` | the service's code: what it publishes, consumes, serves and calls | `go tool specrig surface`, which the `generate` target runs |
 | `tests/flows.yaml` | the component suite: every input a case sent, and what the service sent on | `harness.Main`, after every whole run of the suite |
-| an index and one page per input, beside it | the two above, for every service below a root | `go tool specrig flows` |
+| an index and one page per input, beside it | the two above, for every service below a root | `specrig-flows` |
 
-Each is an artifact, like `AGENTS.md`: whatever has its source rewrites it, and nothing compares it on the way. A stale one is a diff, so CI runs `make generate` and `make test` — and, in a monorepo, `go tool specrig flows` — then `git diff --exit-code`.
+Each is an artifact, like `AGENTS.md`: whatever has its source rewrites it, and nothing compares it on the way. A stale one is a diff, so CI runs `make generate` and `make test` — and, in a monorepo, `specrig-flows` — then `git diff --exit-code`.
 
 The records are specrig's format, which a web app's harness writes too. Each says so first, as an OpenAPI document does under `openapi:` — `specrig: surface/1`, `specrig: flows/1` — and what a record cannot learn from the code goes into `specrig.yaml` beside it, which exists only where there is something to declare.
 
@@ -96,26 +96,10 @@ A branch also records the fields of what it sent, by message, under `sent`. The 
 ## The project's flows
 
 ```
-go tool specrig flows <root> <index.yaml>
+go tool specrig-flows <root> <index.yaml>
 ```
 
-finds every service below `root` by its records the way `go test ./...` finds packages — hidden directories, `vendor`, `node_modules` and `testdata` left out — takes them as the whole system, and writes the index and the pages beside it, removing a page no flow writes any more and naming each link between services that was lost or appeared. No file marks a service: a directory with a record is one. A file at a record's path that does not open with `specrig:` is somebody else's, and is named and passed over; one that does and cannot be read fails the command. A flow starts at every way in: a route, a command, or a message no traced service sends. A monorepo keeps them in its own directory — `.docs/flows/` — and runs the command from its root; the index is the project's, not a service's.
-
-**Pages.** One per flow, and one per input a flow reaches. A flow's page draws the sequence, each step's sends nested under the arrow that reached it and inside the condition — "in 2 of 3 cases of step 1" — that made them; an event a service consumes itself is marked. The page lists the cases of its own input with their comments from the `.feature` file; a step further on shows its branches and how many cases each has, and links to its own page, so a step many flows share — authentication, say — is written once.
-
-A step further on is drawn with what this flow can make it send. A message that needs a field nothing reaching the step carries — a saved card's `methodId`, when the flow pays with a new card — is folded to a note on the step and a line under its branches, and is not followed. The note says what the cases show, not what the code allows: either the message cannot be sent here, or the receiver has no case sending it with what this flow carries. It is folded, not dropped, so the second reading stays on the page as a gap to close.
-
-**The index** holds, besides the flows:
-
-| section | what it is |
-|---|---|
-| `links` | every message one traced service sends and another receives; `notes` names fields the receiver's cases send and the sender's never do |
-| `untested` | a link the code has between two traced services and no case follows |
-| `outside` | what a service sends that no traced service received: taken by nobody's case, taken only by a wildcard subscription, or out of the system |
-| `system` | the records against each other, below |
-| `orphaned` | a flow's `title` or `description` whose flow is gone; it returns with the flow, and fails the command meanwhile |
-
-`system` fails the command on an event published and consumed by nobody, subscribed to and published by nobody, an RPC called and served by nobody, served and called by nobody, a client with no host, a client's request its host does not route, an HTTP request more than one service routes, or a host named without need. It only reports an event taken by a wildcard alone, a service consuming its own event, and an HTTP request no service routes: each of those is a legitimate design.
+reads the records of every service below `root`, whatever its stack, as one system, and writes the index of its flows and their pages beside it. It is specrig-go's command, not the adapter's: a waffle module takes it as a tool with `go get -tool github.com/specrig/specrig-go/cmd/specrig-flows`, and a project without Go runs [the released binary](../../README.md#a-projects-flows). What it joins services by, what the index holds and when the run fails are the protocol's [system.md](https://github.com/specrig/protocol/blob/main/system.md). A monorepo keeps the index in its own directory — `.docs/flows/` — and runs it from its root; the index is the project's, not a service's.
 
 ## What is not there
 

@@ -1,0 +1,5 @@
+flows:
+  clients:
+    A.Billing: d
+    A.Gone: c
+    A.Stock: d

@@ -1,0 +1,36 @@
+specrig: flows/1
+service: billing
+inputs:
+  - message: event orders.placed
+    fields:
+      - order
+    branches:
+      - sends:
+          - http POST /payments
+        sent:
+          http POST /payments:
+            - amount
+        cases:
+          - "billing.feature: A placed order is charged"
+  - message: event payments.settled
+    fields:
+      - payment
+    branches:
+      - sends:
+          - event invoices.issued
+        sent:
+          event invoices.issued:
+            - order
+        cases:
+          - "billing.feature: A settled payment is invoiced"
+  - message: http GET /invoices/{orderId}
+    branches:
+      - cases:
+          - "invoices.feature: An invoice is shown"
+outputs:
+  - message: event invoices.issued
+    fields:
+      - order
+  - message: http POST /payments
+    fields:
+      - amount

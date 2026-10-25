@@ -1,0 +1,24 @@
+specrig: flows/1
+service: billing
+inputs:
+  - message: event orders.placed
+    fields:
+      - card.id
+      - order
+    needs:
+      grpc /ledger.Ledger/Record:
+        - card.id
+    branches:
+      - cases:
+          - "billing.feature: A new card is charged when it comes back"
+      - sends:
+          - grpc /ledger.Ledger/Record
+        sent:
+          grpc /ledger.Ledger/Record:
+            - card
+        cases:
+          - "billing.feature: A saved card is charged at once"
+outputs:
+  - message: grpc /ledger.Ledger/Record
+    fields:
+      - card

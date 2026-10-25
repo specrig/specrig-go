@@ -1,0 +1,7 @@
+specrig: flows/1
+service: stock
+inputs:
+  - message: event заказ.создан
+    branches:
+      - cases:
+          - "stock.feature: Склад видит заказ"

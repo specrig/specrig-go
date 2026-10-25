@@ -1,0 +1,9 @@
+specrig: flows/1
+service: ledger
+inputs:
+  - message: grpc /ledger.Ledger/Record
+    fields:
+      - card
+    branches:
+      - cases:
+          - "ledger.feature: A charge is recorded"

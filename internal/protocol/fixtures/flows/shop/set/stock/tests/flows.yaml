@@ -1,0 +1,10 @@
+specrig: flows/1
+service: stock
+inputs:
+  - message: grpc /stock.Stock/Reserve
+    fields:
+      - items[].count
+      - items[].sku
+    branches:
+      - cases:
+          - "reserve.feature: The stock holds what an order takes"

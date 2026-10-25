@@ -1,0 +1,8 @@
+specrig: flows-fixtures/1
+pages:
+  - shop-grpc-shop-v1-orders-get
+  - shop-grpc-shop-v2-orders-get
+  - shop-http-get-a-b-9ed238
+  - shop-http-get-a-b-e96725
+  - stock-event-zakaz-sozdan
+fails: false

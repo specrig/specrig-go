@@ -1,0 +1,11 @@
+specrig: flows/1
+service: ghost
+inputs:
+  - message: http GET /ghost
+    branches:
+      - sends:
+          - grpc /stock.Stock/Reserve
+        cases:
+          - "ghost.feature: Under testdata"
+outputs:
+  - message: grpc /stock.Stock/Reserve

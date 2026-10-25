@@ -1,0 +1,4 @@
+specrig: surface/1
+service: c
+serves:
+  - GET /items/{id}

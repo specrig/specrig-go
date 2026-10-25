@@ -1,0 +1,11 @@
+specrig: flows/1
+service: stock
+inputs:
+  - message: grpc /stock.Stock/Release
+    branches:
+      - cases:
+          - "stock.feature: What an order held is let go"
+  - message: grpc /stock.Stock/Reserve
+    branches:
+      - cases:
+          - "stock.feature: The stock holds what an order takes"

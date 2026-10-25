@@ -1,0 +1,11 @@
+specrig: flows/1
+service: shop
+inputs:
+  - message: http POST /orders
+    branches:
+      - sends:
+          - grpc /stock.Stock/Reserve
+        cases:
+          - "orders.feature: An order is placed"
+outputs:
+  - message: grpc /stock.Stock/Reserve

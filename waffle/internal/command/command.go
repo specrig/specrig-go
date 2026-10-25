@@ -205,9 +205,6 @@ func report(mark, text string) { _, _ = fmt.Fprintf(output, "  %s %s\n", mark, t
 
 func ReportAction(text string) { report("+", text) }
 
-// For a file that is regenerated rather than scaffolded: compared and found current.
-func ReportUnchanged(text string) { report("=", text+" — up to date") }
-
 // Not an error: the run succeeded, and this is about something it deliberately
 // did not touch.
 func ReportWarning(text string) { report("!", text) }

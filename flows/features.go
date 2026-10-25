@@ -19,6 +19,37 @@ type features struct {
 // Reads every .feature below dir; file names are kept relative to dir.
 func readFeatures(dir string) features {
 	f := features{dir: dir, comments: map[caseKey]string{}, files: map[string][]string{}}
+	walkFeatures(dir, func(rel string, cases []parsedCase) {
+		for _, c := range cases {
+			title := normal(c.title)
+			if _, seen := f.comments[caseKey{rel, title}]; !seen {
+				f.files[title] = append(f.files[title], rel)
+			}
+			f.comments[caseKey{rel, title}] = c.comment
+		}
+	})
+	return f
+}
+
+// The comment above every case below dir, by its title as written and by each
+// tail of its file's path: a stack's suite names the file from its own directory.
+func readComments(dir string) map[caseKey]string {
+	out := map[caseKey]string{}
+	walkFeatures(dir, func(rel string, cases []parsedCase) {
+		parts := strings.Split(rel, "/")
+		for i := range parts {
+			for _, c := range cases {
+				// The Go writer reads a title back from its go test name, where _ stood for a space.
+				for _, title := range []string{c.title, strings.ReplaceAll(c.title, "_", " ")} {
+					out[caseKey{strings.Join(parts[i:], "/"), title}] = c.comment
+				}
+			}
+		}
+	})
+	return out
+}
+
+func walkFeatures(dir string, each func(rel string, cases []parsedCase)) {
 	_ = filepath.WalkDir(dir, func(p string, e fs.DirEntry, err error) error {
 		if err != nil || e.IsDir() || !strings.HasSuffix(p, ".feature") {
 			return nil
@@ -28,17 +59,9 @@ func readFeatures(dir string) features {
 			return nil
 		}
 		rel, _ := filepath.Rel(dir, p)
-		rel = filepath.ToSlash(rel)
-		for _, c := range parseFeature(string(body)) {
-			title := normal(c.title)
-			if _, seen := f.comments[caseKey{rel, title}]; !seen {
-				f.files[title] = append(f.files[title], rel)
-			}
-			f.comments[caseKey{rel, title}] = c.comment
-		}
+		each(filepath.ToSlash(rel), parseFeature(string(body)))
 		return nil
 	})
-	return f
 }
 
 // The file a traced case is in: the one the suite named, or the only file with

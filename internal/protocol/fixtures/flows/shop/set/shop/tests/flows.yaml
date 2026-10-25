@@ -1,0 +1,34 @@
+specrig: flows/1
+service: shop
+inputs:
+  - message: http GET /orders/{id}
+    branches:
+      - sends:
+          - http GET /invoices/{orderId}
+        cases:
+          - "orders.feature: The customer sees what is left to pay"
+  - message: http POST /orders
+    fields:
+      - items[].sku
+    branches:
+      - refused: HTTP 409 out_of_stock
+        cases:
+          - "placing.feature: An order the stock cannot hold is refused"
+      - sends:
+          - grpc /stock.Stock/Reserve
+          - event orders.placed
+        sent:
+          event orders.placed:
+            - order
+          grpc /stock.Stock/Reserve:
+            - items[].sku
+        cases:
+          - "placing.feature: An order is placed"
+outputs:
+  - message: event orders.placed
+    fields:
+      - order
+  - message: grpc /stock.Stock/Reserve
+    fields:
+      - items[].sku
+  - message: http GET /invoices/{orderId}

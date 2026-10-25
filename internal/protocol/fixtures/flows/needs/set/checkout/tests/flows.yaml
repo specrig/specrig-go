@@ -1,0 +1,31 @@
+specrig: flows/1
+service: checkout
+inputs:
+  - message: http POST /checkout
+    fields:
+      - items[].sku
+    branches:
+      - sends:
+          - event orders.placed
+        sent:
+          event orders.placed:
+            - order
+        cases:
+          - "checkout.feature: A new card pays"
+  - message: http POST /checkout/saved
+    fields:
+      - card.id
+    branches:
+      - sends:
+          - event orders.placed
+        sent:
+          event orders.placed:
+            - card.id
+            - order
+        cases:
+          - "checkout.feature: A saved card pays"
+outputs:
+  - message: event orders.placed
+    fields:
+      - card.id
+      - order

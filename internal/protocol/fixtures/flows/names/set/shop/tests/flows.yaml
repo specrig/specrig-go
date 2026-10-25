@@ -1,0 +1,29 @@
+specrig: flows/1
+service: shop
+inputs:
+  - message: grpc /shop.v1.Orders/Get
+    branches:
+      - sends:
+          - event заказ.создан
+        cases:
+          - "orders.feature: The first version is asked"
+  - message: grpc /shop.v2.Orders/Get
+    branches:
+      - sends:
+          - event заказ.создан
+        cases:
+          - "orders.feature: The second version is asked"
+  - message: http GET /a-b
+    branches:
+      - sends:
+          - event заказ.создан
+        cases:
+          - "paths.feature: A dash"
+  - message: http GET /a_b
+    branches:
+      - sends:
+          - event заказ.создан
+        cases:
+          - "paths.feature: An underscore"
+outputs:
+  - message: event заказ.создан

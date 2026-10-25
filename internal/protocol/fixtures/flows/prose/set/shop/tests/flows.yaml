@@ -1,0 +1,18 @@
+specrig: flows/1
+service: shop
+inputs:
+  - message: http DELETE /orders/{id}
+    branches:
+      - sends:
+          - grpc /stock.Stock/Release
+        cases:
+          - "orders.feature: An order is cancelled"
+  - message: http POST /orders
+    branches:
+      - sends:
+          - grpc /stock.Stock/Reserve
+        cases:
+          - "orders.feature: An order is placed"
+outputs:
+  - message: grpc /stock.Stock/Release
+  - message: grpc /stock.Stock/Reserve

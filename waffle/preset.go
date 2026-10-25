@@ -67,7 +67,7 @@ func Preset() cli.Preset {
 		},
 		Own: []string{strings.TrimRight(running, "\n")},
 		Commands: []cli.Command{
-			own(harness.New()), own(replacements.New()), own(records.NewSurface()), own(records.NewFlows()),
+			own(harness.New()), own(replacements.New()), own(records.NewSurface()),
 		},
 		Init: func() error { return harness.New().Run(context.Background()) },
 	}

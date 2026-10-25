@@ -1,0 +1,6 @@
+specrig: surface/1
+service: billing
+consumes:
+  - orders.placed
+calls:
+  - /ledger.Ledger/Record

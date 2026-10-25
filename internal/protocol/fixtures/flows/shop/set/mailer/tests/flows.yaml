@@ -1,0 +1,9 @@
+specrig: flows/1
+service: mailer
+inputs:
+  - message: event invoices.issued
+    fields:
+      - order
+    branches:
+      - cases:
+          - "mail.feature: An issued invoice is mailed"

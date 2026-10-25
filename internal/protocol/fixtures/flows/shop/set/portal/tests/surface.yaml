@@ -1,0 +1,5 @@
+specrig: surface/1
+service: portal
+calls:
+  - GET /orders/{}
+  - POST /orders

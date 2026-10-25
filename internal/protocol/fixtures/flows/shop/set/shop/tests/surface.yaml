@@ -1,0 +1,14 @@
+specrig: surface/1
+service: shop
+publishes:
+  - orders.placed
+serves:
+  - GET /orders/{id}
+  - POST /orders
+calls:
+  - /stock.Stock/Release
+  - /stock.Stock/Reserve
+  - GET /invoices/{}
+clients:
+  Shop.Invoices:
+    - GET /invoices/{}

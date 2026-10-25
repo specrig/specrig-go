@@ -1,0 +1,5 @@
+specrig: flows-fixtures/1
+pages:
+  - shop-http-post-orders
+  - stock-grpc-stock-reserve
+fails: false

@@ -1,0 +1,5 @@
+specrig: surface/1
+service: stock
+serves:
+  - /stock.Stock/Release
+  - /stock.Stock/Reserve

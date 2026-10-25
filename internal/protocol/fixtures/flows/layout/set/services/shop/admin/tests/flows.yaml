@@ -1,0 +1,11 @@
+specrig: flows/1
+service: admin
+inputs:
+  - message: http GET /admin
+    branches:
+      - sends:
+          - grpc /stock.Stock/Reserve
+        cases:
+          - "admin.feature: Inside a service"
+outputs:
+  - message: grpc /stock.Stock/Reserve

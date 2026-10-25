@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -36,7 +37,7 @@ func TestAFlowsProseComesBackWithTheFlow(t *testing.T) {
 	writeFile(t, filepath.Join(root, "shop", "tests", "flows.yaml"), shop)
 	writeFile(t, filepath.Join(root, "stock", "tests", "flows.yaml"), stock)
 	index := filepath.Join(root, "docs", "flows.yaml")
-	writeFile(t, index, "orphaned:\n  - anchor: flow shop-http-post-orders\n    title: Placing an order\n    description: Reserves the stock\n")
+	writeFile(t, index, "specrig: index/1\norphaned:\n  - anchor: flow shop-http-post-orders\n    title: Placing an order\n    description: Reserves the stock\n")
 
 	files, _, err := Assemble(root, index)
 	if err != nil {
@@ -70,6 +71,23 @@ func TestAServiceIsFoundByItsRecordAndAFileOnlyAtItsPathIsNamed(t *testing.T) {
 	}
 	if want := []string{foreign}; !reflect.DeepEqual(skipped, want) {
 		t.Errorf("skipped %v, want %v", skipped, want)
+	}
+}
+
+func TestACaseShowsItsCommentWhereverItsStackKeepsTheFeatures(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "stock", "tests", "flows.yaml"), stock)
+	writeFile(t, filepath.Join(root, "shop", "tests", "features", "a.feature"),
+		"Feature: Orders\n\n  # The stock is held before the order is taken.\n  Scenario: Placing\n    When it is sent\n")
+	writeFile(t, filepath.Join(root, "shop", "tests", "flows.yaml"), strings.Replace(shop, "cases: [a]", `cases: ["a.feature: Placing"]`, 1))
+	index := filepath.Join(root, "docs", "flows.yaml")
+
+	files, _, err := Assemble(root, index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page := string(files[filepath.Join(root, "docs", "shop-http-post-orders.md")]); !strings.Contains(page, "The stock is held before the order is taken.") {
+		t.Errorf("the case's comment is not on its page:\n%s", page)
 	}
 }
 

@@ -1,0 +1,11 @@
+specrig: flows/1
+service: old
+inputs:
+  - message: http GET /old
+    branches:
+      - sends:
+          - grpc /stock.Stock/Reserve
+        cases:
+          - "old.feature: Under a hidden directory"
+outputs:
+  - message: grpc /stock.Stock/Reserve

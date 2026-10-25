@@ -1,0 +1,22 @@
+specrig: surface/1
+service: a
+publishes:
+  - a.done
+  - a.loop
+consumes:
+  - a.loop
+  - b.started
+  - e.#
+serves:
+  - /a.A/Lonely
+calls:
+  - /c.C/Missing
+  - GET /items/{}
+  - GET external
+clients:
+  A.Billing:
+    - POST /refunds
+  A.Search:
+    - GET /search
+  A.Stock:
+    - GET /stock

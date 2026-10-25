@@ -161,7 +161,7 @@ func (p project) branch(b *strings.Builder, s step, svc service, br Branch, leve
 			fmt.Fprintf(b, " · `%s`", file)
 		}
 		b.WriteString("\n")
-		if comment := svc.features.comments[caseKey{file, title}]; comment != "" {
+		if comment := svc.comments[caseKey{file, title}]; comment != "" {
 			for _, par := range strings.Split(comment, "\n\n") {
 				fmt.Fprintf(b, "\n  %s\n", par)
 			}
