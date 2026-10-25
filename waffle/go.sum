@@ -37,8 +37,8 @@ github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0t
 github.com/rogpeppe/go-internal v1.14.1/go.mod h1:MaRKkUm5W0goXpeCfT7UZI6fk/L7L7so1lCWt35ZSgc=
 github.com/rs/zerolog v1.35.1 h1:m7xQeoiLIiV0BCEY4Hs+j2NG4Gp2o2KPKmhnnLiazKI=
 github.com/rs/zerolog v1.35.1/go.mod h1:EjML9kdfa/RMA7h/6z6pYmq1ykOuA8/mjWaEvGI+jcw=
-github.com/specrig/specrig-go v0.2.0 h1:WSZdQqWzDeznFN5F23BBq4yHfzGkQuOjk5tjMr62mS0=
-github.com/specrig/specrig-go v0.2.0/go.mod h1:zfqvJCuAk6vH9Z3WZONzA/nMpMBJ5Pt+FL9BZHu42tc=
+github.com/specrig/specrig-go v0.2.1 h1:N+2gKam78Orb9VXx9vdpDh5HAHxyYcKcN7dLM9rOu50=
+github.com/specrig/specrig-go v0.2.1/go.mod h1:zfqvJCuAk6vH9Z3WZONzA/nMpMBJ5Pt+FL9BZHu42tc=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
 gitlab.com/gorib/amqp v1.9.3 h1:WbDbt3FVnQ/UWRbPnkrvsd19kKtFb+xIkvt2/7TOvFM=

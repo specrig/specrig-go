@@ -3,7 +3,7 @@ module github.com/specrig/specrig-go/waffle
 go 1.27.0
 
 require (
-	github.com/specrig/specrig-go v0.2.0
+	github.com/specrig/specrig-go v0.2.1
 	gitlab.com/gorib/amqp v1.9.3
 	gitlab.com/gorib/env v1.0.1
 	gitlab.com/gorib/failure v1.4.0
