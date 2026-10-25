@@ -123,7 +123,8 @@ closed: what a case may stand in for is not the agent's to change.
 
 This {{what}} has behaviour nobody wrote down, so the first change to touch it has
 nothing to sit inside. Derive a **baseline** from the code first: what it does
-today, per declared contract, in the notation the cases will use.
+today, per declared contract, in the notation the cases will use, and for the
+human who gives the verdicts — they own the behaviour and need not read the code.
 
 A baseline read out of code inherits the code's defects, so **every case carries
 a verdict**, and none is a boundary until it has one:
@@ -137,8 +138,7 @@ a verdict**, and none is a boundary until it has one:
 **The verdict belongs to the baseline, not to the specification.** It is the
 state of a review, and the baseline is not committed: no verdict tags on scenarios
 — `@open`, `@intended`, `@defect` — no legend for them, and nothing that points at
-the baseline or its numbering. Titles describe behaviour — `Create refuses an empty
-code`, not `F2 Create refuses an empty code`.
+the baseline or its numbering.
 
 What the committed case carries instead is the **reason**: the rule as it stands,
 in the present tense, and what it excludes — the reason itself, not a pointer to
@@ -208,6 +208,17 @@ or a case is wrong.
 
 {{describes}}
 
+**A title says what happens and to whom, what goes wrong for them included.**
+`An interrupted save leaves the administrator unaware` — not the branch of the
+code that gets there, `Save aborted midway`, and not a number, `F2 Create refuses
+an empty code`.
+
+**A case reads without the code.** A `Given` is a situation its reader recognises
+— what someone did, what happened — not a branch of the code; an example is a
+value or a text they would see, not a position or an id; and nothing in the case
+needs knowing how the code works inside — the order it saves in, how one save
+becomes several requests.
+
 **Name what the case excludes.** For a case of the form "X comes from Y", answer
 which implementation would also pass it and should not. If one exists, the case
 does not discriminate, and it needs variation — two facilities configured
@@ -243,7 +254,17 @@ another case already implies it, say it in the rule's comment.
 pins how a link is stored; "the contract holds terms at 50 percent" pins what
 has to survive, and it fails for the right reason when a later version is used
 instead. Where both are available, the second is the case and the first is an
-implementation detail the specification should not fix.
+implementation detail the specification should not fix. What reaches a neighbour
+is said the same way: the step's text says what the neighbour was told, and the
+path, the event and the field are the binding's — unless the name is itself the
+contract being approved, as an event's routing key or an error code another
+service reads.
+
+**A case holds the {{what}}'s rules, not a standard's.** What a standard defines —
+a JWT's claims and signature, an HTTP method's semantics, a hash — is checked by
+whoever implements it, and a case restating it tests the library. A case says what
+the {{what}} decides with it: who is let in, for how long, what ends a session. How
+the token is built belongs to the steps.
 
 **Language.** Step text and case titles are English — a closed vocabulary, half
 of it wire identifiers. The **reasoning** — case comments and the delta list —
