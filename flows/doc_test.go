@@ -91,6 +91,23 @@ func TestACaseShowsItsCommentWhereverItsStackKeepsTheFeatures(t *testing.T) {
 	}
 }
 
+func TestAnOutlineRowShowsTheOutlinesComment(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "stock", "tests", "flows.yaml"), stock)
+	writeFile(t, filepath.Join(root, "shop", "tests", "features", "a.feature"), "Feature: Orders\n\n"+
+		"  # The stock is held before the order is taken.\n  Scenario Outline: Placing <what>\n    When <what> is sent\n\n"+
+		"    Examples:\n      | what   |\n      | a book |\n")
+	writeFile(t, filepath.Join(root, "shop", "tests", "flows.yaml"), strings.Replace(shop, "cases: [a]", `cases: ["a.feature: Placing a book"]`, 1))
+
+	files, _, err := Assemble(root, filepath.Join(root, "docs", "flows.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page := string(files[filepath.Join(root, "docs", "shop-http-post-orders.md")]); !strings.Contains(page, "The stock is held before the order is taken.") {
+		t.Errorf("the row's comment is not on its page:\n%s", page)
+	}
+}
+
 func writeFile(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

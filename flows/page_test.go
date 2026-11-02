@@ -172,6 +172,48 @@ func TestACaseIsLabelledByTheFileItRanFrom(t *testing.T) {
 	}
 }
 
+// godog runs an outline once per Examples row, under its title filled from the row.
+func TestAnOutlineRowIsLabelledByTheFileItRanFrom(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "tax.feature"), "Feature: Tax\n\n"+
+		"  Scenario Outline: A line fails the calculation: <case>\n    When a line of <category> is priced\n\n"+
+		"    Examples:\n      | case                             | category |\n      | a category the law does not know | goods    |\n")
+	records := []trace.Record{{
+		Seq: 1, Scenario: "TestFeatures/A_line_fails_the_calculation:_a_category_the_law_does_not_know",
+		Feature: filepath.Join(dir, "tax.feature"), Dir: "in", Kind: "grpc", Name: "/tax.Tax/Calculate", Error: "rpc error: code = InvalidArgument",
+	}}
+
+	doc := build("shark", records, readFeatures(dir))
+
+	got := doc.Inputs[0].Branches[0].Cases
+	if len(got) != 1 || got[0] != "tax.feature: A line fails the calculation: a category the law does not know" {
+		t.Errorf("cases %v, want the one of tax.feature", got)
+	}
+}
+
+func TestAnEscapedPipeIsPartOfAnOutlineRowsTitle(t *testing.T) {
+	cases := parseFeature("Feature: Tax\n\n  Scenario Outline: Priced at <rate>\n\n" +
+		"    Examples:\n      | rate        |\n      | 10 \\| 20 % |\n")
+
+	if got := cases[len(cases)-1].title; got != "Priced at 10 | 20 %" {
+		t.Errorf("title %q, want the row's value with its pipe", got)
+	}
+}
+
+// go test keeps a / of the title in the subtest's name, after the one that nests it.
+func TestATitleWithASlashIsLabelledByItsFile(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "refunds.feature"), "Feature: Refunds\n\n  Scenario: A refund goes through POST /refunds\n    When it is sent\n")
+	records := []trace.Record{{Seq: 1, Scenario: "TestFeatures/A_refund_goes_through_POST_/refunds", Dir: "in", Kind: "http", Name: "POST /refunds"}}
+
+	doc := build("shop", records, readFeatures(dir))
+
+	got := doc.Inputs[0].Branches[0].Cases
+	if len(got) != 1 || got[0] != "refunds.feature: A refund goes through POST /refunds" {
+		t.Errorf("cases %v, want the one of refunds.feature", got)
+	}
+}
+
 // A new method and a saved one pay through one route; what tells their sends
 // apart is the field each case carried, while a field every case carries tells nothing.
 func TestAMessageNeedsTheFieldsThatTellItsSendersApart(t *testing.T) {

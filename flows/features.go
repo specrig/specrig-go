@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -21,7 +22,7 @@ func readFeatures(dir string) features {
 	f := features{dir: dir, comments: map[caseKey]string{}, files: map[string][]string{}}
 	walkFeatures(dir, func(rel string, cases []parsedCase) {
 		for _, c := range cases {
-			title := normal(c.title)
+			title := spelled(c.title)
 			if _, seen := f.comments[caseKey{rel, title}]; !seen {
 				f.files[title] = append(f.files[title], rel)
 			}
@@ -91,9 +92,10 @@ type parsedCase struct {
 
 // Each case with the comment above it, the one place Rule #11 puts the reason.
 func parseFeature(body string) (cases []parsedCase) {
-	var pending []string
-	feature := false
-	for _, raw := range strings.Split(body, "\n") {
+	var pending, header []string
+	var outline parsedCase
+	feature, examples := false, false
+	for raw := range strings.SplitSeq(body, "\n") {
 		line := strings.TrimSpace(raw)
 		switch {
 		case strings.HasPrefix(line, "#"):
@@ -108,13 +110,45 @@ func parseFeature(body string) (cases []parsedCase) {
 			pending, feature = nil, true
 		case strings.HasPrefix(line, "@"):
 		case scenario(line) != "":
-			cases = append(cases, parsedCase{title: scenario(line), comment: prose(pending)})
+			outline = parsedCase{title: scenario(line), comment: prose(pending)}
+			cases = append(cases, outline)
+			pending, examples = nil, false
+		case strings.HasPrefix(line, "Examples:"), strings.HasPrefix(line, "Scenarios:"):
+			pending, header, examples = nil, nil, true
+		case examples && strings.HasPrefix(line, "|"):
+			if row := cells(line); header == nil {
+				header = row
+			} else {
+				cases = append(cases, outline.filled(header, row))
+			}
 			pending = nil
 		default:
 			pending = nil
 		}
 	}
 	return cases
+}
+
+// The case an outline runs for one Examples row, titled as gherkin names it.
+func (c parsedCase) filled(header, row []string) parsedCase {
+	for i := range min(len(header), len(row)) {
+		c.title = strings.ReplaceAll(c.title, "<"+header[i]+">", row[i])
+	}
+	return c
+}
+
+var (
+	cell = regexp.MustCompile(`(?:[^|\\]|\\.)*\|`)
+	// gherkin's escapes in a table cell.
+	unescape = strings.NewReplacer(`\|`, "|", `\\`, `\`, `\n`, "\n")
+)
+
+func cells(row string) []string {
+	out := cell.FindAllString(strings.TrimPrefix(row, "|"), -1)
+	for i, c := range out {
+		out[i] = strings.TrimSpace(unescape.Replace(strings.TrimSuffix(c, "|")))
+	}
+	return out
 }
 
 func scenario(line string) string {
@@ -151,10 +185,15 @@ func normal(subtest string) string {
 	if _, name, ok := strings.Cut(subtest, "/"); ok {
 		subtest = name
 	}
-	if i := strings.LastIndex(subtest, "#"); i > 0 && strings.Trim(subtest[i+1:], "0123456789") == "" {
-		subtest = subtest[:i]
+	return spelled(subtest)
+}
+
+// A title as normal() reads it back from its go test name; a / in it is its own.
+func spelled(title string) string {
+	if i := strings.LastIndex(title, "#"); i > 0 && strings.Trim(title[i+1:], "0123456789") == "" {
+		title = title[:i]
 	}
-	return strings.ReplaceAll(subtest, "_", " ")
+	return strings.ReplaceAll(title, "_", " ")
 }
 
 // Leaf paths, arrays folded into [], so two messages compare by shape. A null or
