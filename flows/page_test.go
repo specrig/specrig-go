@@ -2,6 +2,7 @@ package flows
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -188,6 +189,434 @@ func TestAnOutlineRowIsLabelledByTheFileItRanFrom(t *testing.T) {
 	got := doc.Inputs[0].Branches[0].Cases
 	if len(got) != 1 || got[0] != "tax.feature: A line fails the calculation: a category the law does not know" {
 		t.Errorf("cases %v, want the one of tax.feature", got)
+	}
+}
+
+func pageOfCases(t *testing.T, feature string, branches ...[]string) string {
+	t.Helper()
+	root := t.TempDir()
+	input := Input{Message: "http POST /orders"}
+	for i, titles := range branches {
+		b := Branch{Sends: []string{"grpc /stock.S/Reserve"}}
+		if i > 0 {
+			b = Branch{Refusal: fmt.Sprintf("HTTP 40%d", i)}
+		}
+		for _, title := range titles {
+			b.Cases = append(b.Cases, "a.feature: "+title)
+		}
+		input.Branches = append(input.Branches, b)
+	}
+	writeFile(t, filepath.Join(root, "stock", "tests", "flows.yaml"), stock)
+	writeFile(t, filepath.Join(root, "shop", "tests", "features", "a.feature"), feature)
+	writeFile(t, filepath.Join(root, "shop", "tests", "flows.yaml"), string(encode(Doc{Specrig: Format, Service: "shop", Inputs: []Input{input}})))
+
+	files, _, err := Assemble(root, filepath.Join(root, "docs", "flows.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(files[filepath.Join(root, "docs", "shop-http-post-orders.md")])
+}
+
+func TestARuleStandsOnceAboveItsCasesWithoutItsBackground(t *testing.T) {
+	body := pageOfCases(t, `Feature: Orders
+
+  Rule: Stock is held before the order is taken
+
+    A held unit cannot be sold twice.
+    And nobody else sees it.
+
+    Then the next buyer waits.
+
+    Background: The warehouse
+      About the warehouse, not the rule.
+
+      Given the warehouse is open
+
+    Scenario: Placing a book
+      When it is sent
+
+    Scenario: Placing a pen
+      When it is sent
+`, []string{"Placing a book", "Placing a pen"})
+
+	want := "#### Rule: Stock is held before the order is taken\n\n" +
+		"A held unit cannot be sold twice. And nobody else sees it.\n\nThen the next buyer waits.\n\n" +
+		"- **Placing a book** · `a.feature`\n\n" +
+		"- **Placing a pen** · `a.feature`\n\n"
+	if !strings.Contains(body, want) {
+		t.Errorf("the page lacks\n%s\nin\n%s", want, body)
+	}
+	for _, lost := range []string{"About the warehouse", "the warehouse is open"} {
+		if strings.Contains(body, lost) {
+			t.Errorf("%q of the Background is on the page:\n%s", lost, body)
+		}
+	}
+}
+
+func TestARuleWithoutADescriptionIsItsTitleInEachBranchOfItsCases(t *testing.T) {
+	body := pageOfCases(t, `Feature: Orders
+
+  Rule: Stock is held
+
+    Scenario: Placing a book
+      When it is sent
+
+    Scenario: Placing nothing
+      When it is sent
+`, []string{"Placing a book"}, []string{"Placing nothing"})
+
+	for _, want := range []string{
+		"#### Rule: Stock is held\n\n- **Placing a book**",
+		"##### Rule: Stock is held\n\n- **Placing nothing**",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page lacks %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestARulesDescriptionStandsOnceInAStepAndItsTitleInEachBranch(t *testing.T) {
+	body := pageOfCases(t, `Feature: Orders
+
+  Rule: Stock is held
+
+    A held unit cannot be sold twice.
+
+    Scenario: Placing a book
+      When it is sent
+
+    Scenario: Placing nothing
+      When it is sent
+
+    Scenario: Placing too much
+      When it is sent
+
+  Rule: Refusals are final
+
+    A refused order stays refused.
+
+    Scenario: Placing a ghost
+      When it is sent
+`, []string{"Placing a book"}, []string{"Placing nothing", "Placing a ghost"}, []string{"Placing too much"})
+
+	for _, want := range []string{
+		"#### Rule: Stock is held\n\nA held unit cannot be sold twice.\n\n- **Placing a book**",
+		"##### Rule: Stock is held\n\n- **Placing nothing**",
+		"##### Rule: Refusals are final\n\nA refused order stays refused.\n\n- **Placing a ghost**",
+		"##### Rule: Stock is held\n\n- **Placing too much**",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page lacks %q:\n%s", want, body)
+		}
+	}
+	if n := strings.Count(body, "A held unit cannot be sold twice."); n != 1 {
+		t.Errorf("the description stands %d times:\n%s", n, body)
+	}
+}
+
+func TestARulesDescriptionStandsOnThePageOfEachInputOfItsCases(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "stock", "tests", "flows.yaml"), stock)
+	writeFile(t, filepath.Join(root, "shop", "tests", "features", "a.feature"), `Feature: Orders
+
+  Rule: Stock is held
+
+    A held unit cannot be sold twice.
+
+    Scenario: Placing a book
+      When it is sent
+
+    Scenario: Returning a book
+      When it is sent
+`)
+	sends := []string{"grpc /stock.S/Reserve"}
+	writeFile(t, filepath.Join(root, "shop", "tests", "flows.yaml"), string(encode(Doc{Specrig: Format, Service: "shop", Inputs: []Input{
+		{Message: "http POST /orders", Branches: []Branch{{Sends: sends, Cases: []string{"a.feature: Placing a book"}}}},
+		{Message: "http POST /returns", Branches: []Branch{{Sends: sends, Cases: []string{"a.feature: Returning a book"}}}},
+	}})))
+
+	files, _, err := Assemble(root, filepath.Join(root, "docs", "flows.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, page := range []string{"shop-http-post-orders.md", "shop-http-post-returns.md"} {
+		if body := string(files[filepath.Join(root, "docs", page)]); !strings.Contains(body, "A held unit cannot be sold twice.") {
+			t.Errorf("%s lacks the description:\n%s", page, body)
+		}
+	}
+}
+
+func TestCasesOfARuleStandTogetherAndThoseOfNoneComeFirst(t *testing.T) {
+	body := pageOfCases(t, `Feature: Orders
+
+  # Nothing is held for nothing.
+  Scenario: Placing nothing
+    When it is sent
+
+  Rule: Books
+
+    Scenario: A placed book
+      When it is sent
+
+    Scenario: Z placed book
+      When it is sent
+
+  Rule: Pens
+
+    Scenario: B placed pen
+      When it is sent
+`, []string{"A placed book", "B placed pen", "Placing nothing", "Z placed book"})
+
+	want := "- **Placing nothing** · `a.feature`\n\n  Nothing is held for nothing.\n\n" +
+		"#### Rule: Books\n\n- **A placed book** · `a.feature`\n\n- **Z placed book** · `a.feature`\n\n" +
+		"#### Rule: Pens\n\n- **B placed pen** · `a.feature`\n\n"
+	if !strings.Contains(body, want) {
+		t.Errorf("the page lacks\n%s\nin\n%s", want, body)
+	}
+}
+
+func TestAFileOfCommentsKeepsEveryLineOfItsPage(t *testing.T) {
+	body := pageOfCases(t, `Feature: Orders
+
+  # A book is held.
+  # For a day.
+  #
+  # Then it is sold.
+  Scenario: Placing a book
+    When it is sent
+
+  Scenario: Placing a pen
+    When it is sent
+`, []string{"Placing a book", "Placing a pen"})
+
+	want := "- **Placing a book** · `a.feature`\n\n  A book is held. For a day.\n\n  Then it is sold.\n\n" +
+		"- **Placing a pen** · `a.feature`\n\n"
+	if !strings.Contains(body, want) {
+		t.Errorf("the page lacks\n%s\nin\n%s", want, body)
+	}
+	if strings.Contains(body, "Rule:") {
+		t.Errorf("a file without rules got one:\n%s", body)
+	}
+}
+
+func TestADescriptionComesTogetherInParagraphsAndEndsAtTheFirstStep(t *testing.T) {
+	body := pageOfCases(t, `Feature: Orders
+
+  Scenario: Placing a book
+
+    A book is held
+    for a day.
+
+    Then it is sold, and this is prose no longer.
+    Given it is sent
+`, []string{"Placing a book"})
+
+	if want := "- **Placing a book** · `a.feature`\n\n  A book is held for a day.\n\n"; !strings.Contains(body, want) {
+		t.Errorf("the page lacks %q:\n%s", want, body)
+	}
+	for _, lost := range []string{"prose no longer", "it is sent"} {
+		if strings.Contains(body, lost) {
+			t.Errorf("%q of a step is on the page:\n%s", lost, body)
+		}
+	}
+}
+
+func TestADescriptionTakesThePlaceOfTheCommentAboveItsCase(t *testing.T) {
+	body := pageOfCases(t, `Feature: Orders
+
+  # Above the book.
+  Scenario: Placing a book
+    A book is held.
+
+    When it is sent
+
+  # Above the pen.
+  Scenario: Placing a pen
+    When it is sent
+`, []string{"Placing a book", "Placing a pen"})
+
+	want := "- **Placing a book** · `a.feature`\n\n  A book is held.\n\n" +
+		"- **Placing a pen** · `a.feature`\n\n  Above the pen.\n\n"
+	if !strings.Contains(body, want) {
+		t.Errorf("the page lacks\n%s\nin\n%s", want, body)
+	}
+	if strings.Contains(body, "Above the book") {
+		t.Errorf("the comment stands beside a description:\n%s", body)
+	}
+}
+
+func TestOutlineRowsInheritTheRuleAndTheDescription(t *testing.T) {
+	body := pageOfCases(t, `Feature: Orders
+
+  Rule: Stock is held
+
+    Scenario Outline: Placing fails: <case>
+      Nothing is held for a broken order.
+
+      When <case> is sent
+
+      Examples: The first
+        About the rows, not the outline.
+
+        | case   |
+        | a book |
+
+      Examples: The second
+        | case  |
+        | a pen |
+`, []string{"Placing fails: a book", "Placing fails: a pen"})
+
+	want := "#### Rule: Stock is held\n\n" +
+		"- **Placing fails: a book** · `a.feature`\n\n  Nothing is held for a broken order.\n\n" +
+		"- **Placing fails: a pen** · `a.feature`\n\n  Nothing is held for a broken order.\n\n"
+	if !strings.Contains(body, want) {
+		t.Errorf("the page lacks\n%s\nin\n%s", want, body)
+	}
+	if strings.Contains(body, "About the rows") {
+		t.Errorf("the description of the Examples is on the page:\n%s", body)
+	}
+}
+
+func TestACommentAmongStepsOrRowsIsNotOnThePage(t *testing.T) {
+	body := pageOfCases(t, `Feature: Orders
+
+  Scenario Outline: Placing <what>
+    # Among the steps.
+    Given it is ready
+    # Among the steps too.
+    When <what> is sent
+    # After the steps.
+
+    Examples:
+      | what   |
+      # Among the rows.
+      | a book |
+`, []string{"Placing a book"})
+
+	if want := "- **Placing a book** · `a.feature`\n\n"; !strings.Contains(body, want) {
+		t.Errorf("the page lacks %q:\n%s", want, body)
+	}
+	if strings.Contains(body, "Among") || strings.Contains(body, "After the steps") {
+		t.Errorf("a comment among the steps is on the page:\n%s", body)
+	}
+}
+
+func TestACommentInADescriptionIsNotPartOfIt(t *testing.T) {
+	cases := parseFeature(`Feature: Orders
+
+  Rule: Stock is held
+    A book is held.
+    # Not for the page.
+    For a day.
+
+    Scenario: Placing a book
+      It is held.
+      # Not for the page.
+      For a day.
+      When it is sent
+`)
+
+	if got := prose(cases[0].rule.text); got != "A book is held. For a day." {
+		t.Errorf("the rule says %q", got)
+	}
+	if got := cases[0].reason(); got != "It is held. For a day." {
+		t.Errorf("the case says %q", got)
+	}
+}
+
+func TestKeywordsInATableOrADocstringAreNotKeywords(t *testing.T) {
+	cases := parseFeature(`Feature: Orders
+
+  Rule: Stock is held
+
+    Background:
+      Given the document
+        """
+        Scenario: In a docstring of the Background
+        """
+
+    Scenario: Placing a book
+      Given the rows
+        | Scenario: in a table |
+        | Rule: in a table     |
+        | # in a table         |
+      When the document is
+        """
+        Rule: in a docstring
+        Scenario: in a docstring
+        Examples:
+        | in a docstring |
+        # in a docstring
+        ` + "```" + `
+        """
+      And the other document is
+        ` + "```" + `
+        Scenario: in another docstring
+        """
+        ` + "```" + `
+
+    # Above the pen.
+    Scenario: Placing a pen
+      When it is sent
+`)
+
+	var titles []string
+	for _, c := range cases {
+		titles = append(titles, c.title)
+	}
+	if want := []string{"Placing a book", "Placing a pen"}; !slices.Equal(titles, want) {
+		t.Fatalf("cases %q, want %q", titles, want)
+	}
+	if cases[1].rule.title != "Stock is held" || cases[0].rule != cases[1].rule {
+		t.Errorf("a docstring moved the rule: %q, %q", cases[0].rule.title, cases[1].rule.title)
+	}
+	if cases[0].reason() != "" || cases[1].reason() != "Above the pen." {
+		t.Errorf("the cases say %q, %q", cases[0].reason(), cases[1].reason())
+	}
+}
+
+func TestASeparatorBeforeTheFirstStepIsProseNotADocstring(t *testing.T) {
+	cases := parseFeature(`Feature: Orders
+
+  Background:
+    """
+    Given it is ready
+
+  Scenario: Placing a book
+    """
+    Held for a day.
+    When it is sent
+
+  Scenario: Placing a pen
+    When it is sent
+`)
+
+	if len(cases) != 2 {
+		t.Fatalf("%d cases, want 2: %+v", len(cases), cases)
+	}
+	if got := cases[0].reason(); got != `""" Held for a day.` {
+		t.Errorf("the case says %q", got)
+	}
+}
+
+func TestAScenarioWithoutATitleEndsTheDescriptionBeforeIt(t *testing.T) {
+	cases := parseFeature(`Feature: Orders
+
+  Rule: Stock is held
+    For a day.
+
+    Scenario:
+      When it is sent
+`)
+
+	if len(cases) != 1 || prose(cases[0].rule.text) != "For a day." {
+		t.Errorf("%+v", cases)
+	}
+}
+
+func TestExamplesBeforeAnyScenarioAreNoCase(t *testing.T) {
+	if cases := parseFeature("Feature: Orders\n\n  Examples:\n    | what   |\n    | a book |\n"); len(cases) != 0 {
+		t.Errorf("%+v", cases)
 	}
 }
 

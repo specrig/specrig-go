@@ -112,13 +112,14 @@ func (p project) cases(b *strings.Builder, s step) {
 			rest = append(rest, br)
 		}
 	}
+	told := map[*parsedRule]bool{}
 	for _, br := range onward {
-		p.branch(b, s, svc, br, "###")
+		p.branch(b, s, svc, br, "###", told)
 	}
 	if len(rest) > 0 {
 		fmt.Fprintf(b, "<details>\n<summary>Other branches of the step (%d)</summary>\n\n", len(rest))
 		for _, br := range rest {
-			p.branch(b, s, svc, br, "####")
+			p.branch(b, s, svc, br, "####", told)
 		}
 		b.WriteString("</details>\n")
 	}
@@ -146,28 +147,59 @@ func (p project) branchName(s step, br Branch) string {
 	return strings.Join(to, "; ")
 }
 
-func (p project) branch(b *strings.Builder, s step, svc service, br Branch, level string) {
+func (p project) branch(b *strings.Builder, s step, svc service, br Branch, level string, told map[*parsedRule]bool) {
 	fmt.Fprintf(b, "%s %s\n\n", level, p.branchName(s, br))
 	if br.Description != "" {
 		fmt.Fprintf(b, "%s\n\n", br.Description)
 	}
-	for _, c := range br.Cases {
-		file, title, found := strings.Cut(c, ": ")
-		if !found || !strings.HasSuffix(file, ".feature") {
-			file, title = "", c
+	var rule *parsedRule
+	for _, c := range svc.listed(br.Cases) {
+		if c.rule != rule {
+			rule = c.rule
+			fmt.Fprintf(b, "%s# Rule: %s\n\n", level, rule.title)
+			if text := prose(rule.text); text != "" && !told[rule] {
+				told[rule] = true
+				fmt.Fprintf(b, "%s\n\n", text)
+			}
 		}
-		fmt.Fprintf(b, "- **%s**", title)
-		if file != "" {
-			fmt.Fprintf(b, " · `%s`", file)
+		fmt.Fprintf(b, "- **%s**", c.title)
+		if c.file != "" {
+			fmt.Fprintf(b, " · `%s`", c.file)
 		}
 		b.WriteString("\n")
-		if comment := svc.comments[caseKey{file, title}]; comment != "" {
-			for _, par := range strings.Split(comment, "\n\n") {
+		if reason := c.reason(); reason != "" {
+			for par := range strings.SplitSeq(reason, "\n\n") {
 				fmt.Fprintf(b, "\n  %s\n", par)
 			}
 		}
 		b.WriteString("\n")
 	}
+}
+
+type listedCase struct {
+	parsedCase
+	file string
+}
+
+// A branch's cases by rule, those under none first: after a rule's heading they
+// would read as its own.
+func (s service) listed(labels []string) []listedCase {
+	rank := map[*parsedRule]int{nil: 0}
+	out := make([]listedCase, 0, len(labels))
+	for _, label := range labels {
+		file, title, found := strings.Cut(label, ": ")
+		if !found || !strings.HasSuffix(file, ".feature") {
+			file, title = "", label
+		}
+		c := s.cases[caseKey{file, title}]
+		c.title = title
+		if _, seen := rank[c.rule]; !seen {
+			rank[c.rule] = len(rank)
+		}
+		out = append(out, listedCase{parsedCase: c, file: file})
+	}
+	slices.SortStableFunc(out, func(a, b listedCase) int { return rank[a.rule] - rank[b.rule] })
+	return out
 }
 
 func count(n int) string {

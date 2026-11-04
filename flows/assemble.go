@@ -48,8 +48,8 @@ type Link struct {
 }
 
 type service struct {
-	doc      Doc
-	comments map[caseKey]string
+	doc   Doc
+	cases map[caseKey]parsedCase
 }
 
 type step struct {
@@ -101,7 +101,7 @@ func load(root string) (project, error) {
 			p.surfaces = append(p.surfaces, s)
 		}
 		if hasDoc {
-			p.services[doc.Service] = service{doc: doc, comments: readComments(filepath.Join(dir, "tests"))}
+			p.services[doc.Service] = service{doc: doc, cases: readCases(filepath.Join(dir, "tests"))}
 		}
 		return filepath.SkipDir
 	})

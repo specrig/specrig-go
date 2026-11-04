@@ -32,17 +32,17 @@ func readFeatures(dir string) features {
 	return f
 }
 
-// The comment above every case below dir, by its title as written and by each
-// tail of its file's path: a stack's suite names the file from its own directory.
-func readComments(dir string) map[caseKey]string {
-	out := map[caseKey]string{}
+// Every case below dir, by its title as written and by each tail of its file's
+// path: a stack's suite names the file from its own directory.
+func readCases(dir string) map[caseKey]parsedCase {
+	out := map[caseKey]parsedCase{}
 	walkFeatures(dir, func(rel string, cases []parsedCase) {
 		parts := strings.Split(rel, "/")
 		for i := range parts {
 			for _, c := range cases {
 				// The Go writer reads a title back from its go test name, where _ stood for a space.
 				for _, title := range []string{c.title, strings.ReplaceAll(c.title, "_", " ")} {
-					out[caseKey{strings.Join(parts[i:], "/"), title}] = c.comment
+					out[caseKey{strings.Join(parts[i:], "/"), title}] = c
 				}
 			}
 		}
@@ -85,18 +85,43 @@ func (f features) file(uri, title string) string {
 	return ""
 }
 
+type parsedRule struct {
+	title string
+	text  []string
+}
+
 type parsedCase struct {
 	title   string
+	rule    *parsedRule
+	text    []string
 	comment string
 }
 
-// Each case with the comment above it, the one place Rule #11 puts the reason.
+func (c parsedCase) reason() string {
+	if text := prose(c.text); text != "" {
+		return text
+	}
+	return c.comment
+}
+
+// Each case with what its file says of it: its rule, its description and the
+// comment above it.
 func parseFeature(body string) (cases []parsedCase) {
 	var pending, header []string
-	var outline parsedCase
-	feature, examples := false, false
+	var rule *parsedRule
+	var description *[]string
+	var docstring string
+	outline := 0
+	feature, examples, steps := false, false, false
 	for raw := range strings.SplitSeq(body, "\n") {
 		line := strings.TrimSpace(raw)
+		if docstring != "" {
+			if strings.HasPrefix(line, docstring) {
+				docstring = ""
+			}
+			continue
+		}
+		title, isScenario := scenario(line)
 		switch {
 		case strings.HasPrefix(line, "#"):
 			pending = append(pending, strings.TrimSpace(strings.TrimPrefix(line, "#")))
@@ -106,24 +131,40 @@ func parseFeature(body string) (cases []parsedCase) {
 			if feature {
 				pending = nil
 			}
+			if description != nil {
+				*description = append(*description, "")
+			}
 		case strings.HasPrefix(line, "Feature:"):
 			pending, feature = nil, true
 		case strings.HasPrefix(line, "@"):
-		case scenario(line) != "":
-			outline = parsedCase{title: scenario(line), comment: prose(pending)}
-			cases = append(cases, outline)
-			pending, examples = nil, false
+			description = nil
+		case strings.HasPrefix(line, "Rule:"):
+			rule = &parsedRule{title: strings.TrimSpace(strings.TrimPrefix(line, "Rule:"))}
+			pending, description, steps, examples = nil, &rule.text, false, false
+		case strings.HasPrefix(line, "Background:"):
+			pending, description, steps, examples = nil, new([]string), true, false
+		case isScenario:
+			cases = append(cases, parsedCase{title: title, rule: rule, comment: prose(pending)})
+			outline = len(cases) - 1
+			pending, description, steps, examples = nil, &cases[outline].text, true, false
 		case strings.HasPrefix(line, "Examples:"), strings.HasPrefix(line, "Scenarios:"):
-			pending, header, examples = nil, nil, true
+			pending, header, description, steps, examples = nil, nil, nil, false, len(cases) > 0
 		case examples && strings.HasPrefix(line, "|"):
 			if row := cells(line); header == nil {
 				header = row
 			} else {
-				cases = append(cases, outline.filled(header, row))
+				cases = append(cases, cases[outline].filled(header, row))
 			}
 			pending = nil
+		case steps && stepLine(line):
+			pending, description = nil, nil
+		case steps && description == nil && (strings.HasPrefix(line, `"""`) || strings.HasPrefix(line, "```")):
+			pending, docstring = nil, line[:3]
 		default:
 			pending = nil
+			if description != nil {
+				*description = append(*description, line)
+			}
 		}
 	}
 	return cases
@@ -151,16 +192,25 @@ func cells(row string) []string {
 	return out
 }
 
-func scenario(line string) string {
+func scenario(line string) (string, bool) {
 	for _, keyword := range []string{"Scenario Outline:", "Scenario Template:", "Scenario:", "Example:"} {
 		if title, ok := strings.CutPrefix(line, keyword); ok {
-			return strings.TrimSpace(title)
+			return strings.TrimSpace(title), true
 		}
 	}
-	return ""
+	return "", false
 }
 
-// Comment lines back into paragraphs: an empty # line is the break.
+func stepLine(line string) bool {
+	for _, keyword := range []string{"Given ", "When ", "Then ", "And ", "But ", "* "} {
+		if strings.HasPrefix(line, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+// Comment or description lines back into paragraphs: an empty line is the break.
 func prose(lines []string) string {
 	var paragraphs, current []string
 	for _, l := range lines {
