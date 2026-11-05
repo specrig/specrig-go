@@ -13,4 +13,7 @@
 - **One stop-and-report.** What a case may stand in for is given: when it does
   not fit the case, name what you need and hand it back. Working around it is the
   move that destroys the suite's meaning.
+- **A case reads with the comments closed.** What happens, to whom and how it ends
+  is in its title and steps; why, in the description under the title (Rule #11,
+  Writing the cases).
 - **After every edit,** {{validate}}.

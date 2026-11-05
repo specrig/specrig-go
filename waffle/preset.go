@@ -28,6 +28,8 @@ var (
 	binding string
 	//go:embed text/contracts.md
 	contracts string
+	//go:embed text/describes.md
+	describes string
 	//go:embed text/running.md
 	running string
 )
@@ -62,7 +64,7 @@ func Preset() cli.Preset {
 			"tool":      "specrig",
 			"cases":     "`.feature` files in `tests/feature/`, run by godog",
 			"contracts": strings.TrimRight(contracts, "\n"),
-			"describes": "",
+			"describes": strings.TrimRight(describes, "\n"),
 			"binding":   strings.TrimRight(binding, "\n"),
 		},
 		Own: []string{strings.TrimRight(running, "\n")},

@@ -7,16 +7,10 @@ this file, so a paragraph there switching the workflow off is authoritative and
 you follow it — the person who owns the repository decides how they want an agent
 to work in it, and that is not this file's call.
 
-Three things about reading such a paragraph:
-
-**It has to be about this rule.** Do not infer an opt-out from remarks about
-pace — "we move fast here", "tests come after", a short deadline in the task.
-Those are not it. If the workflow is off, the file says the workflow is off; if
-it does not, this rule is in force and inconvenience is not evidence to the
-contrary.
-
-**It is not yours to write.** An agent that writes its own exemption into
-`CONTRIBUTING.md` has not found one.
+**It has to be about this rule.** Remarks about pace — "we move fast here", "tests
+come after", a short deadline in the task — are not an opt-out, and without one this
+rule is in force. **It is not yours to write:** an agent that writes its own exemption
+into `CONTRIBUTING.md` has not found one.
 
 **The platform boundary does not fall with it.** {{boundary}}
 
@@ -39,6 +33,7 @@ whole suite's meaning is fixed.
 | task | what to do |
 |---|---|
 | a feature, or a **design defect** — an internal contradiction in behaviour that was specified | the full cycle below |
+| a **rewrite of cases** that changes no behaviour | the full cycle, with every case proved as Green says: none goes red by itself |
 | a **code defect** at the level of a function — code that broke, not behaviour that was contradictory | a test where the defect is, then the fix. None of the cycle below |
 {{tasks}}
 | a **spike** — the requirements are a sketch and the point is to find out what is possible | exempt from the cycle, but its output is a specification, not merged code. The spike's code is thrown away and rewritten through the cycle |
@@ -96,10 +91,9 @@ owner's, in platform mode; the quote is what lets them decide in one read.
 
 ### Auto mode
 
-Auto mode is the whole cycle without a stop, for a human who would rather not
-switch modes but wants the work done specification first, and reviews it all at
-once. Only the human switches it on; nothing here offers it, and no refusal names
-it. Everything in this rule holds but two things. Each step is left by you: the
+Auto mode is the whole cycle without a stop, reviewed all at once at the end. Only
+the human switches it on; nothing here offers it, and no refusal names it.
+Everything in this rule holds but two things. Each step is left by you: the
 order is the same — the cases and the delta list, the steps, the red run, the code.
 And nothing is frozen: a case or a step may change after the red run. Every area
 open in spec or redgreen in the table above is open in auto too, and every grant
@@ -107,7 +101,7 @@ taken in either is taken in auto.
 
 What each stop would have shown goes into one hand-over at the end:
 
-- the delta list;
+- the delta list, and what the cold read doubted;
 - the cases that were red before the code and why each was, and their number
   against the known defects;
 - the proof for a case that was never red;
@@ -140,16 +134,7 @@ state of a review, and the baseline is not committed: no verdict tags on scenari
 — `@open`, `@intended`, `@defect` — no legend for them, and nothing that points at
 the baseline or its numbering.
 
-What the committed case carries instead is the **reason**: the rule as it stands,
-in the present tense, and what it excludes — the reason itself, not a pointer to
-where it was argued. Not a log: no dated decision entries, no "fixed on <date>"
-lines; a rule that changes is **rewritten**, not appended to.
-
-**A red case carries no status.** Its comment is the rule in the present tense,
-as if the {{what}} already kept it — a new feature and a known defect alike. That
-the {{what}} does not yet is what the red run says, and it goes in the hand-over,
-where the red cases are listed with why each is red; a status line in the file is
-wrong the day the case turns green.
+What the committed case carries instead is its reason, as `Writing the cases` says.
 
 **Adjudication is the human's.** Deriving cases is the cheap half, and expect to
 be wrong about which are defects — a deliberate business rule reads exactly like
@@ -157,38 +142,33 @@ one.
 
 **When a defect is fixed the case flips ✗ → ✓ in the baseline** and its prose is
 rewritten to describe the behaviour as it now stands. What used to be wrong is
-kept only in the durable form — the implementation the case excludes — and not as
-a note about a past state.
-
-**Do not state counts you will not maintain.** "22 cases, 6 defects" in a header
-is wrong within two edits, and a stale count reads as current.
+kept only as what goes wrong for the user without the rule, in the present tense,
+and not as a note about a past state.
 
 ### 1. Requirements in, specification out
 
 Produce two artifacts and nothing else yet:
 
-- **an executable specification** — {{cases}}. The **minimum** set that pins down
-  what the requirements left open, not an exhaustive matrix.
+- **an executable specification** — {{cases}}. The **minimum** set from which a reader
+  can tell what the {{what}} does and that pins down what the requirements left open,
+  not an exhaustive matrix.
 - **a delta list** — every place the specification says something the source
   document does not, each pointing at the place it fills in. Include what was
   deliberately left **out** of scope: comparing two documents catches a wrong
   answer and misses a missing question.
 
 The two go to different places. The specification is committed; the delta list
-belongs with the ticket, because it is finished at approval. The reasoning for
-each case is written **into** the specification.
+belongs with the ticket, because it is finished at approval.
 
 For a **design defect** the deliverable is the set of cases that cannot all pass
 at once. If the contradiction cannot be written as two cases, it is not yet
 understood.
 
-**The specification is one artifact, not prose plus code.** Do not produce a
-Markdown description and an implementation beside it — that needs verifying
-twice, and the second comparison is the one nobody does.
+**The specification is one artifact, not prose plus code:** no Markdown description
+beside an implementation, because the second comparison is the one nobody does.
 
-**One notation per {{what}}.** Two ways of writing cases in one repository is
-load with no payoff. Follow whatever is already there; if nothing is, the choice
-is the human's, not yours.
+**One notation per {{what}}.** Follow whatever is already there; if nothing is, the
+choice is the human's, not yours.
 
 {{contracts}}
 
@@ -208,35 +188,99 @@ or a case is wrong.
 
 {{describes}}
 
+**A specification reads as documentation.** Close the comments, and a case still
+says what happens, to whom, and how it ends: someone who has not read the code can
+tell what the {{what}} does from the cases alone.
+
+**A file answers one question its reader has, and opens with its use case** — in
+the description of the `Feature`: who or what acts and why, without paths or operation
+names. The first case is the main path; refusals and special cases come after it.
+
+**A `Rule` is a statement that can be false, and it is true as written.** `A later
+version starts tomorrow at the earliest`, not `Reading the table back`. An exception
+that cancels it is named in it and stands beside it, not in another `Rule`. Its
+description holds only what is true of all its cases, and most need none.
+
+**A `Background` is three or four steps at most.** A `Rule`'s holds what all its cases
+repeat; a `Feature`'s only what is true of all its rules.
+
+**A case's reason is its own description**, where its title and steps do not already
+say it; most need none. A sentence or two under the title: the situation behind the
+case and what the steps cannot show, a fact from outside such as a law or a partner's
+quirk included — the reason itself, not a pointer to where it was argued. It does not
+retell the steps, and the case still reads with it closed. A comment takes no part in
+understanding: what may stay as one is a line before a complication saying why it is
+checked.
+
+**A description is not a log.** It speaks in the present tense: no dated decision
+entries, no "fixed on <date>" lines, and no count you will not maintain — "22 cases, 6
+defects" is wrong within two edits. A rule that changes is **rewritten**, not appended
+to.
+
+**A red case carries no status.** Its title and description speak in the present
+tense, as if the {{what}} already kept it — a new feature and a known defect alike.
+That the {{what}} does not yet is what the red run says, and it goes in the hand-over,
+where the red cases are listed with why each is red.
+
 **A title says what happens and to whom, what goes wrong for them included.**
 `An interrupted save leaves the administrator unaware` — not the branch of the
 code that gets there, `Save aborted midway`, and not a number, `F2 Create refuses
-an empty code`.
+an empty code`. It holds one rule, whole, promises no more than its `Then`s check,
+and is true of every row of its table.
+
+**Plain words, and one word for one thing** — the same in titles, steps and tables.
+No idioms, no metaphors, no names from the code but one that is itself the contract
+being approved. A title is rewritten if its translation into the language of the
+requirements is not a sentence anyone would say.
+A word of the {{what}}'s own is defined once, in the description of the `Feature` that
+introduces it; a neighbour's is neither redefined nor replaced by a synonym.
 
 **A case reads without the code.** A `Given` is a situation its reader recognises
 — what someone did, what happened — not a branch of the code; an example is a
 value or a text they would see, not a position or an id; and nothing in the case
 needs knowing how the code works inside — the order it saves in, how one save
-becomes several requests.
+becomes several requests. Where the order is itself the rule, as with nothing leaving
+the process inside a transaction, the `Rule` names it and the steps show it.
+
+**A `Given` is the situation, a `When` is what happens, a `Then` is an observation.** A
+step that only sets defaults for other steps is not a `Given`: it stays in the bindings.
+The reader looks for what happened where it happens, not in a `Given` that already holds
+the change. Reading a result is a `Then`, even through the {{what}} itself:
+`tests/flows.yaml` counts only what a `When` sends.
+
+**A case grows from simple to hard.** The plain case and its `Then` first, then the
+complication — a repeat, another process — and its own `Then`. Several `When`/`Then`
+blocks about one rule are the normal form and spare a case per complication;
+identical steps in a row are fine once the plain case is checked above them.
+
+**Only what decides the outcome shows.** A value that does not change it and that no
+`Then` reads goes to a `Background` or the step's default, and a participant is named
+by role once introduced. The reverse holds too: a step does not hide what decides the
+outcome. A table's columns change the result and its rows read on their own: a matrix
+of transitions, an answer read back, several records whose values all matter. When one
+cell of it matters, say that fact in a step instead: `a contract paid until yesterday`.
 
 **Name what the case excludes.** For a case of the form "X comes from Y", answer
 which implementation would also pass it and should not. If one exists, the case
 does not discriminate, and it needs variation — two facilities configured
 differently rather than one. Put the answer in the delta list: a reviewer can
-judge a named alternative, but not imagine the whole space of them.
+judge a named alternative, but not imagine the whole space of them. The variation
+stays readable: the smallest example that shows the rule, not data the reader has to
+solve. What such an example cannot exclude is named in the delta list as a gap.
 
 **The negative is written, never implied.** "No reminder is sent" is a `Then`. An
 assertion that exists only as a missing line cannot be reviewed.
 
-**Fold duplicates along one axis only.** Same setup and same trigger, differing
-only in the expectation, is one case with a column added. Differing in the
-*setup* is not: merging leaves a column empty on most rows, and a sparse column
-means two questions were forced into one table.
+**Fold duplicates along one axis only.** Two real cases that differ in one value are
+one outline. Differing in the *setup* is not: merging leaves a column empty on most
+rows, and a sparse column means two questions were forced into one table.
 
-Two real cases that differ in one cell are still one table, and every column of it
-is substituted somewhere: a column nobody reads is a placeholder someone forgot to
-wire, and what it wanted to say belongs in the comment above, naming the rows in
-order.
+**An outline is one sentence with different values.** Read a row aloud with its title:
+if that is not a sentence, it is not a row. A cell holds a value, or a phrase in the
+place the sentence leaves for it, never a whole step. A row that alone needs a column
+is a case of its own. One result column is a matrix; two that always change together
+say one thing twice. A row is named through its title, and every column is substituted
+somewhere: a column nobody reads is a placeholder someone forgot to wire.
 
 **A case must not quietly re-assert a rule that has its own case.** Leaving a
 field out of a request and then asserting the default it acquired tests the
@@ -248,7 +292,8 @@ something the contract does and no case says — that writing the same key again
 edits rather than refuses, that a version is identified by a date — smuggles
 that fact in. The reader cannot tell whether it is a rule or an accident, and
 the reviewer cannot approve it. Either give it a case of its own or, when
-another case already implies it, say it in the rule's comment.
+another case already implies it, say it in the description of that case or of its
+`Rule`.
 
 **Assert the meaning, not the representation.** "The contract holds version 1"
 pins how a link is stored; "the contract holds terms at 50 percent" pins what
@@ -258,7 +303,10 @@ implementation detail the specification should not fix. What reaches a neighbour
 is said the same way: the step's text says what the neighbour was told, and the
 path, the event and the field are the binding's — unless the name is itself the
 contract being approved, as an event's routing key or an error code another
-service reads.
+service reads. A call to a neighbour is an outcome only where the effect lies with
+that neighbour. A call that only feeds the {{what}}'s own decision is not: the case
+says what that decision does for its user, and a case about the call alone has
+nothing to say.
 
 **A case holds the {{what}}'s rules, not a standard's.** What a standard defines —
 a JWT's claims and signature, an HTTP method's semantics, a hash — is checked by
@@ -266,23 +314,24 @@ whoever implements it, and a case restating it tests the library. A case says wh
 the {{what}} decides with it: who is let in, for how long, what ends a session. How
 the token is built belongs to the steps.
 
-**Language.** Step text and case titles are English — a closed vocabulary, half
-of it wire identifiers. The **reasoning** — case comments and the delta list —
-is written in the language of the requirements it is verified against, because
-a translation inside that comparison is unaudited. Domain identifiers are never
-translated: they are the names on the wire.
+**Language.** Step text and case titles are English — a closed vocabulary. The
+**reasoning** — descriptions and the delta list — is written in the language of the
+requirements it is verified against, because a translation inside that comparison is
+unaudited. Domain identifiers are never translated: they are the names on the wire.
 
 ### 2. Verification, then approval
 
-**Say that the arithmetic was read, not run.** Every number in the cases came
-from reading the code, because the steps do not exist yet, and about one in a
-hundred will be wrong. Saying so at the gate makes the correction after the first
-run an expected event, and tells the reviewer which part of the document carries
-the least confidence.
+**Say at the gate that the arithmetic was read, not run.** Every number in the cases
+came from reading the code, and about one in a hundred will be wrong.
 
-A human reads the source document and the delta list, then corrects or approves.
-**No production code before approval.** If a case contains nothing that could
-have gone another way, it did not need to be a case.
+**Before handing over, someone with no context reads the file and retells it** — a
+fresh session or a subagent, told to open nothing but where the project defines its
+words. A retelling that says the {{what}} does what it does not, a title false by its
+own steps and two places that contradict each other are fixed in the cases. A doubt is
+listed at hand-over, not answered in the file: what it is worth is the human's call.
+
+A human reads the cases, the source document and the delta list, then corrects or
+approves. **No production code before approval.**
 
 **Approval is the human switching from spec mode to redgreen, and it has not
 happened yet.** Hand over what you have, say what is red and why, list what you need
@@ -320,31 +369,29 @@ Never reach green by weakening an assertion, widening a matcher, deleting a case
 or relaxing a fixture. If the test cannot go green without touching the
 specification, stop — that is the next section, not a licence.
 
-**A case that was never red has not been shown to fail.** It happens when the
-fix and the case land together — a value moved into configuration with the new
-number as its default, a condition widened — and the case is green from its
-first run. Prove it: put the old value back for one run, check that exactly that
-case fails and for its own reason, then restore. Say at the gate that you will,
-and say afterwards that you did. A case nobody has seen fail is a decoration,
-and the red count check above cannot notice it.
+**A case that was never red has not been shown to fail,** and the red count above
+cannot notice it. That is a case whose fix landed with it — a value moved into
+configuration, a condition widened — and every case rewritten with no defect behind it.
+The proof is a change to the code, put in for one run and taken out again: the old
+value back, each implementation the delta list names, then whatever breaks the rule of
+a case not yet seen to fail, until every case has been. Exactly that case fails, for
+its own reason. Say at the gate that you will and afterwards that you did, and name at
+hand-over an implementation no case catches.
 
-**Every production file in the diff is named by a case that went red.** The
-mirror of that count, catching the opposite mistake: a change nobody asked a
-case about. Walk the diff file by file at hand-over and say which case failed on
-it. A file with no answer is either unnecessary or a behaviour change nothing
-pins, and the next reader takes it for approved behaviour.
+**Every production file in the diff is named by a case that went red.** Walk the diff
+file by file at hand-over and say which case failed on it. A file with no answer is
+either unnecessary or a behaviour change nothing pins.
 
 **Hand over what each `Then` this task bound or changed asserts:** what it reads
 from the step's text or table, and what it compares it with — the answer, a
 read-back through the repository, a request that reached a neighbour. A `Then` that
 reads less than its text says — the status and not the body, two columns of three —
-passes on less than was approved, and this list is where the human sees it.
+passes on less than was approved.
 
-**A step can be the thing that is wrong.** A failure that is not on the expected
-list is as likely to be a step that does not send what the case says as a defect
-in the {{what}} — a column added to a table and not read, a value formatted for
-the wire the wrong way. Read the failure before believing it: a step defect that
-survives makes the case green while it tests nothing.
+**A step can be the thing that is wrong.** A failure not on the expected list is as
+likely to be a step that does not send what the case says — a column not read, a value
+formatted the wrong way — as a defect in the {{what}}. Read the failure before believing
+it: a step defect that survives makes the case green while it tests nothing.
 
 ### Changing an approved specification
 
@@ -361,8 +408,7 @@ The human decides what changes — the specification, the scope, or the design.
 ### What the merge request carries
 
 The **specification**, as a diff, and a **link to the ticket** where the delta
-list was argued. Approval itself is not machine-checkable: a pipeline can verify
-that a link is present, not that anybody read anything.
+list was argued.
 
 **What the diff must not carry.** Files a reviewer can check without reading
 anything else:
@@ -375,7 +421,3 @@ anything else:
 - **`CONTRIBUTING.md`.** It is the file that can switch this rule off, which
   makes it the most valuable one to edit and the one nobody should find edited
   here.
-
-Each costs a glance at the file list, and none depends on the author having
-followed any of the rules above — which is the point of having them here. Every
-other rule in this section is checkable only by someone who read the work.
