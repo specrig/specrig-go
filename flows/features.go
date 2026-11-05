@@ -6,7 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
+
+	gherkin "github.com/cucumber/gherkin/go/v42"
 )
 
 type caseKey struct{ file, title string }
@@ -107,6 +110,8 @@ func (c parsedCase) reason() string {
 // Each case with what its file says of it: its rule, its description and the
 // comment above it.
 func parseFeature(body string) (cases []parsedCase) {
+	dialect := dialectOf(body)
+	scenarios := slices.Concat(dialect.ScenarioKeywords(), dialect.ScenarioOutlineKeywords())
 	var pending, header []string
 	var rule *parsedRule
 	var description *[]string
@@ -121,7 +126,6 @@ func parseFeature(body string) (cases []parsedCase) {
 			}
 			continue
 		}
-		title, isScenario := scenario(line)
 		switch {
 		case strings.HasPrefix(line, "#"):
 			pending = append(pending, strings.TrimSpace(strings.TrimPrefix(line, "#")))
@@ -134,20 +138,20 @@ func parseFeature(body string) (cases []parsedCase) {
 			if description != nil {
 				*description = append(*description, "")
 			}
-		case strings.HasPrefix(line, "Feature:"):
+		case titled(line, dialect.FeatureKeywords()):
 			pending, feature = nil, true
 		case strings.HasPrefix(line, "@"):
 			description = nil
-		case strings.HasPrefix(line, "Rule:"):
-			rule = &parsedRule{title: strings.TrimSpace(strings.TrimPrefix(line, "Rule:"))}
+		case titled(line, dialect.RuleKeywords()):
+			rule = &parsedRule{title: titleOf(line)}
 			pending, description, steps, examples = nil, &rule.text, false, false
-		case strings.HasPrefix(line, "Background:"):
+		case titled(line, dialect.BackgroundKeywords()):
 			pending, description, steps, examples = nil, new([]string), true, false
-		case isScenario:
-			cases = append(cases, parsedCase{title: title, rule: rule, comment: prose(pending)})
+		case titled(line, scenarios):
+			cases = append(cases, parsedCase{title: titleOf(line), rule: rule, comment: prose(pending)})
 			outline = len(cases) - 1
 			pending, description, steps, examples = nil, &cases[outline].text, true, false
-		case strings.HasPrefix(line, "Examples:"), strings.HasPrefix(line, "Scenarios:"):
+		case titled(line, dialect.ExamplesKeywords()):
 			pending, header, description, steps, examples = nil, nil, nil, false, len(cases) > 0
 		case examples && strings.HasPrefix(line, "|"):
 			if row := cells(line); header == nil {
@@ -156,7 +160,7 @@ func parseFeature(body string) (cases []parsedCase) {
 				cases = append(cases, cases[outline].filled(header, row))
 			}
 			pending = nil
-		case steps && stepLine(line):
+		case steps && stepLine(line, dialect.StepKeywords()):
 			pending, description = nil, nil
 		case steps && description == nil && (strings.HasPrefix(line, `"""`) || strings.HasPrefix(line, "```")):
 			pending, docstring = nil, line[:3]
@@ -192,22 +196,32 @@ func cells(row string) []string {
 	return out
 }
 
-func scenario(line string) (string, bool) {
-	for _, keyword := range []string{"Scenario Outline:", "Scenario Template:", "Scenario:", "Example:"} {
-		if title, ok := strings.CutPrefix(line, keyword); ok {
-			return strings.TrimSpace(title), true
+func dialectOf(body string) *gherkin.Dialect {
+	builtin := gherkin.DialectsBuiltin()
+	directive := gherkin.NewMatcher(builtin)
+	for raw := range strings.SplitSeq(strings.TrimPrefix(body, "\xef\xbb\xbf"), "\n") {
+		line := strings.TrimSpace(raw)
+		if found, token, err := directive.MatchLanguage(&gherkin.Line{TrimmedLineText: line}); found && err == nil {
+			return builtin.GetDialect(token.Text)
+		}
+		if line != "" && !strings.HasPrefix(line, "#") {
+			break
 		}
 	}
-	return "", false
+	return builtin.GetDialect(gherkin.DefaultDialect)
 }
 
-func stepLine(line string) bool {
-	for _, keyword := range []string{"Given ", "When ", "Then ", "And ", "But ", "* "} {
-		if strings.HasPrefix(line, keyword) {
-			return true
-		}
-	}
-	return false
+func titled(line string, keywords []string) bool {
+	return slices.ContainsFunc(keywords, func(keyword string) bool { return strings.HasPrefix(line, keyword+gherkin.TitleKeywordSeparator) })
+}
+
+func titleOf(line string) string {
+	_, title, _ := strings.Cut(line, gherkin.TitleKeywordSeparator)
+	return strings.TrimSpace(title)
+}
+
+func stepLine(line string, keywords []string) bool {
+	return slices.ContainsFunc(keywords, func(keyword string) bool { return strings.HasPrefix(line, keyword) })
 }
 
 // Comment or description lines back into paragraphs: an empty line is the break.

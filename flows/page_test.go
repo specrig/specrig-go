@@ -629,6 +629,103 @@ func TestAnEscapedPipeIsPartOfAnOutlineRowsTitle(t *testing.T) {
 	}
 }
 
+func TestARussianFileIsOnThePageLikeAnEnglishOne(t *testing.T) {
+	body := pageOfCases(t, `# language: ru
+Функция: Заказы
+
+  Правило: Товар резервируется до заказа
+
+    Зарезервированное нельзя продать дважды.
+    И никто другой его не видит.
+
+    Предыстория: Склад
+      О складе, а не о правиле.
+
+      Допустим склад открыт
+
+    Сценарий: Заказ книги
+      Книга резервируется на день.
+
+      Когда заказ отправлен
+
+    # Над ручкой.
+    Сценарий: Заказ ручки
+      Когда заказ отправлен
+
+    Структура сценария: Отказ: <что>
+      Для ошибочного заказа ничего не резервируется.
+
+      Когда отправлено <что>
+
+      Примеры: Первые
+        О строках, а не о структуре.
+
+        | что   |
+        | книга |
+
+      Примеры: Вторые
+        | что   |
+        | ручка |
+`, []string{"Заказ книги", "Заказ ручки", "Отказ: книга", "Отказ: ручка"})
+
+	want := "#### Rule: Товар резервируется до заказа\n\n" +
+		"Зарезервированное нельзя продать дважды. И никто другой его не видит.\n\n" +
+		"- **Заказ книги** · `a.feature`\n\n  Книга резервируется на день.\n\n" +
+		"- **Заказ ручки** · `a.feature`\n\n  Над ручкой.\n\n" +
+		"- **Отказ: книга** · `a.feature`\n\n  Для ошибочного заказа ничего не резервируется.\n\n" +
+		"- **Отказ: ручка** · `a.feature`\n\n  Для ошибочного заказа ничего не резервируется.\n\n"
+	if !strings.Contains(body, want) {
+		t.Errorf("the page lacks\n%s\nin\n%s", want, body)
+	}
+	for _, lost := range []string{"О складе", "склад открыт", "О строках", "language"} {
+		if strings.Contains(body, lost) {
+			t.Errorf("%q is on the page:\n%s", lost, body)
+		}
+	}
+}
+
+func TestAStepKeywordWithoutASpaceEndsADescription(t *testing.T) {
+	cases := parseFeature(`# language: ja
+機能: 注文
+
+  シナリオ: 本の注文
+    本は一日確保される。
+
+    前提本がある
+`)
+
+	if len(cases) != 1 || cases[0].reason() != "本は一日確保される。" {
+		t.Errorf("%+v", cases)
+	}
+}
+
+func TestKeywordsAreThoseOfTheLanguageAtTheTopOfTheFile(t *testing.T) {
+	russian := "Функция: Заказы\n\n  Сценарий: Заказ книги\n"
+	english := "Feature: Orders\n\n  Scenario: Placing a book\n"
+	for _, c := range []struct {
+		body string
+		want []string
+	}{
+		{"# language: ru\n" + russian, []string{"Заказ книги"}},
+		{"# About orders\n\n  #language:ru\n" + russian, []string{"Заказ книги"}},
+		{"# language: ru\r\nФункция: Заказы\r\n\r\n  Сценарий: Заказ книги\r\n", []string{"Заказ книги"}},
+		{"\xef\xbb\xbf# language: ru\n" + russian, []string{"Заказ книги"}},
+		{"@orders\n# language: ru\n" + russian, nil},
+		{"Функция: Заказы\n# language: ru\n\n  Сценарий: Заказ книги\n", nil},
+		{russian, nil},
+		{"# language: ru\n" + english, nil},
+		{"# language: nowhere\n" + english, []string{"Placing a book"}},
+	} {
+		var titles []string
+		for _, parsed := range parseFeature(c.body) {
+			titles = append(titles, parsed.title)
+		}
+		if !slices.Equal(titles, c.want) {
+			t.Errorf("cases %q, want %q from\n%s", titles, c.want, c.body)
+		}
+	}
+}
+
 // go test keeps a / of the title in the subtest's name, after the one that nests it.
 func TestATitleWithASlashIsLabelledByItsFile(t *testing.T) {
 	dir := t.TempDir()
