@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -21,33 +22,21 @@ type client struct {
 	Service string // RegisterXServer's X; the constructor is NewXClient
 }
 
-// A handler registers its service in Start, and protoc-gen-go-grpc puts
-// NewXClient beside RegisterXServer. A handler outside the module is not the
-// service's contract, and one whose shape is not recognised is reported rather
-// than guessed at.
+// The container imports every handler's package, whichever condition registers
+// it; one outside the module is not the service's contract.
 func (s *shape) readClients(module, root string) (missed []string) {
-	if s.Grpc.handlers == "" {
+	if s.Grpc.Handlers == "" {
 		return nil
 	}
-	body := waffle.InitAppWithBody(s.file)
-	constructors := builtBy(body)
 	seen := map[string]bool{}
-	for _, member := range members(body, s.Grpc.handlers) {
-		call, ok := constructors[member]
+	for _, importPath := range slices.Compact(slices.Sorted(maps.Values(s.Imports))) {
+		rel, ok := strings.CutPrefix(importPath, module+"/")
 		if !ok {
-			missed = append(missed, member)
 			continue
 		}
-		pkg, fn, ok := strings.Cut(call, ".")
-		importPath := s.Imports[pkg]
-		if !ok || !strings.HasPrefix(importPath, module+"/") {
-			continue
-		}
-		dir := filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(importPath, module+"/")))
-		registered, ok := registration(dir, fn)
-		if !ok {
-			missed = append(missed, member)
-			continue
+		registered, unregistered := registrations(filepath.Join(root, filepath.FromSlash(rel)))
+		for _, handler := range unregistered {
+			missed = append(missed, rel+"."+handler)
 		}
 		for _, r := range registered {
 			if !seen[r.Path+"."+r.Service] {
@@ -60,92 +49,15 @@ func (s *shape) readClients(module, root string) (missed []string) {
 	return missed
 }
 
-// container.handlers = []T{container.a, container.b}
-func members(body *ast.BlockStmt, field string) []string {
-	var out []string
-	ast.Inspect(body, func(n ast.Node) bool {
-		assign, ok := n.(*ast.AssignStmt)
-		if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
-			return true
-		}
-		if target, ok := waffle.QualifiedBy(assign.Lhs[0], "container"); !ok || target != field {
-			return true
-		}
-		literal, ok := assign.Rhs[0].(*ast.CompositeLit)
-		if !ok {
-			return true
-		}
-		for _, elt := range literal.Elts {
-			if member, ok := waffle.QualifiedBy(elt, "container"); ok {
-				out = append(out, member)
-			}
-		}
-		return false
-	})
-	return out
-}
-
-// container.x = s, where s := pkg.NewX(...) earlier in the same block.
-func builtBy(body *ast.BlockStmt) map[string]string {
-	out := map[string]string{}
-	ast.Inspect(body, func(n ast.Node) bool {
-		block, ok := n.(*ast.BlockStmt)
-		if !ok {
-			return true
-		}
-		locals := map[string]string{}
-		for _, stmt := range block.List {
-			assign, ok := stmt.(*ast.AssignStmt)
-			if !ok || len(assign.Rhs) != 1 {
-				continue
-			}
-			if call, ok := assign.Rhs[0].(*ast.CallExpr); ok && assign.Tok == token.DEFINE {
-				if pkg, ok := assign.Lhs[0].(*ast.Ident); ok {
-					if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
-						if x, ok := selector.X.(*ast.Ident); ok {
-							locals[pkg.Name] = x.Name + "." + selector.Sel.Name
-						}
-					}
-				}
-				continue
-			}
-			local, ok := assign.Rhs[0].(*ast.Ident)
-			if !ok {
-				continue
-			}
-			for _, lhs := range assign.Lhs {
-				if field, ok := waffle.QualifiedBy(lhs, "container"); ok && locals[local.Name] != "" {
-					out[field] = locals[local.Name]
-				}
-			}
-		}
-		return true
-	})
-	return out
-}
-
-func registration(dir, constructor string) ([]client, bool) {
-	files := parseDir(dir)
-	var typeName string
-	for _, file := range files {
-		for _, decl := range file.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if ok && fn.Recv == nil && fn.Name.Name == constructor {
-				typeName = returned(fn)
-			}
-		}
-	}
-	if typeName == "" {
-		return nil, false
-	}
-	var out []client
-	for _, file := range files {
+func registrations(dir string) (out []client, unregistered []string) {
+	for _, file := range parseDir(dir) {
 		aliases := waffle.ImportAliases(file)
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Recv == nil || fn.Name.Name != "Start" || receiver(fn) != typeName || fn.Body == nil {
+			if !ok || fn.Body == nil || !handlerStart(fn, aliases) {
 				continue
 			}
+			before := len(out)
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
 				call, ok := n.(*ast.CallExpr)
 				if !ok {
@@ -166,9 +78,25 @@ func registration(dir, constructor string) ([]client, bool) {
 				}
 				return true
 			})
+			if len(out) == before {
+				unregistered = append(unregistered, receiver(fn))
+			}
 		}
 	}
-	return out, len(out) > 0
+	return out, unregistered
+}
+
+func handlerStart(fn *ast.FuncDecl, aliases map[string]string) bool {
+	if fn.Recv == nil || fn.Name.Name != "Start" || len(fn.Type.Params.List) != 1 {
+		return false
+	}
+	param := fn.Type.Params.List[0]
+	selector, ok := param.Type.(*ast.SelectorExpr)
+	if !ok || len(param.Names) > 1 || selector.Sel.Name != "ServiceRegistrar" {
+		return false
+	}
+	x, ok := selector.X.(*ast.Ident)
+	return ok && aliases[x.Name] == "google.golang.org/grpc"
 }
 
 func parseDir(dir string) []*ast.File {
@@ -187,32 +115,6 @@ func parseDir(dir string) []*ast.File {
 			out = append(out, file)
 		}
 	}
-	return out
-}
-
-// The declared result, or failing that the literal returned: a constructor may
-// return an interface and build the concrete type inside.
-func returned(fn *ast.FuncDecl) string {
-	if fn.Type.Results != nil && len(fn.Type.Results.List) > 0 {
-		if name := local(fn.Type.Results.List[0].Type); name != "" {
-			return name
-		}
-	}
-	var out string
-	ast.Inspect(fn.Body, func(n ast.Node) bool {
-		ret, ok := n.(*ast.ReturnStmt)
-		if !ok || len(ret.Results) == 0 || out != "" {
-			return out == ""
-		}
-		expr := ret.Results[0]
-		if unary, ok := expr.(*ast.UnaryExpr); ok {
-			expr = unary.X
-		}
-		if literal, ok := expr.(*ast.CompositeLit); ok {
-			out = local(literal.Type)
-		}
-		return false
-	})
 	return out
 }
 

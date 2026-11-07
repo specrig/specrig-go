@@ -271,6 +271,100 @@ func (s *orderService) Start(server grpc.ServiceRegistrar) {
 }
 `
 
+const fillHandler = `package grpc
+
+import (
+	"google.golang.org/grpc"
+
+	proto "example.test/api/fill"
+)
+
+func NewFillService() *fillService {
+	return &fillService{}
+}
+
+type fillService struct {
+	proto.FillServiceServer
+}
+
+func (s *fillService) Start(server grpc.ServiceRegistrar) {
+	proto.RegisterFillServiceServer(server, s)
+}
+`
+
+const conditionalContainer = `package diogen
+
+import (
+	server "gitlab.com/gorib/grpc/server"
+	grpcCommand "gitlab.com/gorib/waffle/tools/grpc"
+	shopGrpc "example.test/shop/domain/shop/cmd/grpc"
+)
+
+type Replacements struct {
+	GrpcCommandServiceHandlerAsServiceTag []grpcCommand.ServiceHandler
+}
+
+type Application struct {
+	grpcCommandServiceHandlerAsServiceTag []grpcCommand.ServiceHandler
+	serverInterceptorAsMiddlewareTag      []server.Interceptor
+}
+
+func InitAppWith(replacements Replacements) (*Application, error) {
+	container.grpcCommandServiceHandlerAsServiceTag = replacements.GrpcCommandServiceHandlerAsServiceTag
+
+	buildShopGrpcFillServiceAsGrpcCommandServiceHandler := diogenBuild("example.test/shop/domain/shop/cmd/grpc.NewFillService", func(name string) error {
+		if c76806d17() {
+			s := shopGrpc.NewFillService()
+			container.shopGrpcFillServiceAsGrpcCommandServiceHandler = s
+		}
+		return nil
+	})
+
+	buildShopGrpcOrderServiceAsGrpcCommandServiceHandler := diogenBuild("example.test/shop/domain/shop/cmd/grpc.NewOrderService", func(name string) error {
+		s := shopGrpc.NewOrderService(nil)
+		container.shopGrpcOrderServiceAsGrpcCommandServiceHandler = s
+		return nil
+	})
+
+	buildGrpcCommandServiceHandlerAsServiceTag := diogenBuild("di.Tags(grpcCommand.ServiceTag)", func(name string) error {
+		if container.grpcCommandServiceHandlerAsServiceTag == nil {
+			elements := make([]grpcCommand.ServiceHandler, 0, 2)
+			if c76806d17() {
+				if err := buildShopGrpcFillServiceAsGrpcCommandServiceHandler(); err != nil {
+					return err
+				}
+				elements = append(elements, container.shopGrpcFillServiceAsGrpcCommandServiceHandler)
+			}
+			if err := buildShopGrpcOrderServiceAsGrpcCommandServiceHandler(); err != nil {
+				return err
+			}
+			elements = append(elements, container.shopGrpcOrderServiceAsGrpcCommandServiceHandler)
+			container.grpcCommandServiceHandlerAsServiceTag = elements
+		}
+		return nil
+	})
+
+	buildGrpcGrpcCommand := diogenBuild("gitlab.com/gorib/waffle/tools/grpc.NewGrpcCommand", func(name string) error {
+		if err := diogenNeed(buildGrpcCommandServiceHandlerAsServiceTag); err != nil {
+			return err
+		}
+		s := grpcCommand.NewGrpcCommand(
+			container.grpcCommandServiceHandlerAsServiceTag,
+			container.serverInterceptorAsMiddlewareTag,
+			nil,
+			container.appBaseCommandForGrpcCommandGrpcCommand,
+		)
+		container.grpcGrpcCommand = s
+		return nil
+	})
+
+	if err := buildGrpcGrpcCommand(); err != nil {
+		return nil, err
+	}
+	return container, nil
+}
+`
+
 const httpContainer = `package diogen
 
 import (
@@ -1091,6 +1185,55 @@ func TestAGrpcServiceGetsATypedClientPerRegisteredHandler(t *testing.T) {
 	// A member by name means the list was copied, and a tagged registration
 	// added later would reach the daemon and not the suite.
 	lacks(t, "harness_gen.go", body, "a.InterceptorLogMWAsServerInterceptor()", "waffleHttp")
+}
+
+func TestAHandlerRegisteredUnderAConditionGetsItsClientToo(t *testing.T) {
+	module(t, conditionalContainer, map[string]string{
+		"domain/shop/cmd/grpc/order.go": orderHandler,
+		"domain/shop/cmd/grpc/fill.go":  fillHandler,
+	})
+
+	run(t)
+
+	contains(t, "harness_gen.go", generatedFile(t),
+		"clients.Fill = fillProto.NewFillServiceClient(conn)",
+		"clients.Order = orderProto.NewOrderServiceClient(conn)",
+	)
+}
+
+func TestAHandlerWhoseRegistrationIsNotFoundIsMissedAndAnotherStartIsNoHandler(t *testing.T) {
+	module(t, grpcContainer, map[string]string{
+		"domain/shop/cmd/grpc/order.go": orderHandler,
+		"domain/shop/cmd/grpc/other.go": `package grpc
+
+import (
+	"context"
+
+	"google.golang.org/grpc"
+)
+
+type helped struct{}
+
+func (s *helped) Start(server grpc.ServiceRegistrar) {
+	register(server, s)
+}
+
+type index struct{}
+
+func (i *index) Start(ctx context.Context) error {
+	return nil
+}
+`,
+	})
+
+	clients, missed := registrations(filepath.FromSlash("domain/shop/cmd/grpc"))
+
+	if len(clients) != 1 || clients[0].Service != "OrderService" {
+		t.Errorf("clients %v, want only OrderService", clients)
+	}
+	if !reflect.DeepEqual(missed, []string{"helped"}) {
+		t.Errorf("missed %v, want [helped]", missed)
+	}
 }
 
 func TestServicesOfOneNameArePrefixedByTheirPackage(t *testing.T) {

@@ -42,7 +42,6 @@ type shape struct {
 	CommandLists []string // getters of the di.Tags collections of commands
 	Params       []param
 	Imports      map[string]string // alias -> path, as the container file spells them
-	file         *ast.File
 
 	paramImports map[string]string // alias -> path the params hook's result types need
 }
@@ -57,7 +56,6 @@ type wiring struct {
 	Mux          string
 	Global       string
 	Routers      string
-	handlers     string // the unexported field, for its members
 }
 
 func (w wiring) Present() bool { return w.Handlers != "" || w.Mux != "" }
@@ -73,7 +71,7 @@ func read(container waffle.Container, importPath string, seams []waffle.Seam) (s
 	if err != nil {
 		return shape{}, err
 	}
-	out := shape{file: file, Imports: waffle.ImportAliases(file)}
+	out := shape{Imports: waffle.ImportAliases(file)}
 	collections := collectionFields(file)
 	built := constructors(file)
 	types := map[string]waffle.TypeRef{}
@@ -406,7 +404,7 @@ func (w *wiring) assign(name, kind string) {
 	case strings.Contains(elem, "Interceptor"):
 		w.Interceptors = getter
 	case strings.Contains(elem, "ServiceHandler"):
-		w.Handlers, w.handlers = getter, name
+		w.Handlers = getter
 	case strings.HasSuffix(elem, "Mux"):
 		w.Mux = getter
 	// Only as a collection: a single Router left unassigned reaches read(),

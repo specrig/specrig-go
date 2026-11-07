@@ -88,8 +88,8 @@ func (c *cmd) Run(_ context.Context, args ...string) error {
 	if err := collisions(formatted, names); err != nil {
 		return err
 	}
-	for _, member := range found.missed {
-		command.ReportWarning("no Register…Server call found for the handler " + member + ": write its client by hand")
+	for _, handler := range found.missed {
+		command.ReportWarning("no Register…Server call found in the Start of " + handler + ": write its client by hand")
 	}
 	target := filepath.Join(harnessDir, generated)
 	if changed, err := command.WriteIfChanged(p.Path(target), formatted); err != nil || !changed {
