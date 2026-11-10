@@ -277,6 +277,15 @@ The resource's own work never fails: `Reset` heals before it puts the tables bac
 and does that through a connection of its own, so its place in the set does not
 matter.
 
+**One table refusing writes is not an outage.** A case about a write that fails
+halfway — the second invoice, the outbox after the line — has to read what the
+failed write left, and `FailWith` breaks the reads too. `app.Postgres.Refuse(ctx,
+"invoices")` makes Postgres itself refuse every insert, update and delete on that
+table until the next `Reset`; `RefuseAfter(ctx, "invoices", 1)` lets the first row
+through. A trigger refuses, so the scenario's own connections are refused as well:
+write the fixtures before the step that refuses. The details are in the
+[sql README](https://gitlab.com/gorib/sql/-/blob/main/README.md#8-testing).
+
 `Postgres` and `Redis` are on `App` where the harness filled the seam, like a
 recorder; a scenario that supplied its own `SqlDb` gets no `Postgres`. They need
 no grant in `replacements.allow`: the scenario replaces nothing. Elasticsearch is
