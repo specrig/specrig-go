@@ -99,7 +99,7 @@ Typed, checked by the compiler, failing at build time. Adding a system is editin
 type Resource interface {
 	Provision(ctx context.Context) error // it is there and reachable, or a loud error
 	Migrate(ctx context.Context) error   // schema, index mapping or topic set up to date
-	Reset(ctx context.Context) error     // empty it, between scenarios
+	Reset(ctx context.Context) error     // back to what Migrate left, between scenarios
 }
 ```
 
@@ -173,7 +173,9 @@ The drop uses `with (force)` — **postgres 13 or later**: our own pool is close
 
 ### Reset
 
-`Reset` truncates with `restart identity cascade`. The tables are **discovered from the schema** after migration — excluding a migration tool's own bookkeeping — so there is no list to keep in step with the migrations. `Tables(...)` pins them if you need to.
+`Reset` puts the database back as `Migrate` left it: it truncates, then restores the rows the migrations wrote and where each sequence stood, so a seeded row is there in every scenario and ids go on after it. The tables are **discovered from the schema** after migration — excluding a migration tool's own bookkeeping — so there is no list to keep in step with the migrations. `Tables(...)` pins them if you need to.
+
+**The baseline is the migrated database, not an empty one.** A schema without the rows its migrations write — the states an order moves through, the root of a tree — exists in no environment, so a scenario run against it tests a world nobody deploys. A step that writes those rows back is a second copy of the migration, and it drifts from the first. Putting rows back turns foreign keys and triggers off for one transaction, which needs a superuser: the container has one, and migrations that write no rows need none.
 
 Truncation, not a database per scenario, and not a pinned transaction: the scenario talks to the service over a real connection, and context values do not cross that boundary.
 
@@ -271,8 +273,9 @@ the scenario's alone.
 | `redistest` | every command, pipeline and dial |
 | `elastictest` | every method of `elastic.Client` |
 
-The resource's own work never fails: `Reset` heals before it empties, and empties
-through a connection of its own, so its place in the set does not matter.
+The resource's own work never fails: `Reset` heals before it puts the tables back,
+and does that through a connection of its own, so its place in the set does not
+matter.
 
 `Postgres` and `Redis` are on `App` where the harness filled the seam, like a
 recorder; a scenario that supplied its own `SqlDb` gets no `Postgres`. They need

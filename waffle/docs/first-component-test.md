@@ -237,8 +237,9 @@ func boot(t *testing.T, cut diogen.Replacements) (*harness.App, *harness.Clients
 }
 ```
 
-`Reset` truncates with `restart identity cascade` over the tables it discovered
-after migrating — there is no list to keep in step. Not a transaction per
+`Reset` puts back what migrating left — the rows the migrations wrote and where
+each sequence stood — over the tables it discovered after migrating; there is no
+list to keep in step. Not a transaction per
 scenario: the scenario talks to the service over a real connection, and context
 values do not cross that boundary.
 
