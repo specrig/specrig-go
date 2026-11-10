@@ -726,6 +726,8 @@ func TestFirstRunScaffoldsTheSuiteAndGeneratesTheHarness(t *testing.T) {
 		"\tPostgres Postgres\n",
 		"Refuse(ctx context.Context, table string, writes ...sqltest.Write) error",
 		"RefuseAfter(ctx context.Context, table string, rows int, writes ...sqltest.Write) error",
+		"RefuseCommit(ctx context.Context, table string, writes ...sqltest.Write) error",
+		"Heal(ctx context.Context) error",
 	)
 }
 

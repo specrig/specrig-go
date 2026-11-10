@@ -58,7 +58,10 @@ a grant on the client to fake one.
 A write that fails halfway is not an outage either: `app.Postgres.Refuse(ctx,
 table)` makes one table refuse writes, `RefuseAfter(ctx, table, rows)` lets that
 many rows through first, and reads keep working, so a `Then` can check what the
-failed write left. Do not create triggers by hand: `Reset` lifts only these.
+failed write left. `RefuseCommit(ctx, table)` fails only the commit, for what
+must not get out before it. `app.Postgres.Heal(ctx)` is the database coming back:
+it ends the fault and every refusal and keeps the rows. Do not create triggers by
+hand: `Heal` and `Reset` lift only these.
 
 `docs/harness.md` in specrig-go's waffle adapter has the catalogue — which
 recorder exists for which seam — and the reasoning behind a particular grant.

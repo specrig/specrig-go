@@ -252,7 +252,8 @@ Elasticsearch tracks no connections per index, so the process id stands in for o
 A case about an outage breaks the client, not the server. Its step calls
 `app.Postgres.FailWith(nil)`, and from then on every client the resource handed
 out fails — the one the container already holds included — until the next
-`Reset`. `nil` is a refused connection, `errors.Is(err, syscall.ECONNREFUSED)`;
+`Reset`, or for postgres until `app.Postgres.Heal(ctx)`, which keeps the rows.
+`nil` is a refused connection, `errors.Is(err, syscall.ECONNREFUSED)`;
 pass an error of your own for anything else, a timeout say.
 
 ```go
@@ -281,14 +282,18 @@ matter.
 halfway — the second invoice, the outbox after the line — has to read what the
 failed write left, and `FailWith` breaks the reads too. `app.Postgres.Refuse(ctx,
 "invoices")` makes Postgres itself refuse every insert, update and delete on that
-table until the next `Reset`; `RefuseAfter(ctx, "invoices", 1)` lets the first row
-through. A trigger refuses, so the scenario's own connections are refused as well:
-write the fixtures before the step that refuses. The details are in the
+table until `Heal` or the next `Reset`; `RefuseAfter(ctx, "invoices", 1)` lets the
+first row through. A case about what gets out before the commit — to the index, to
+the bus — needs the statements to go through: `RefuseCommit(ctx, "invoices")`
+fails only the commit of a transaction that wrote the table. A trigger refuses, so
+the scenario's own connections are refused as well: write the fixtures before the
+step that refuses. The details are in the
 [sql README](https://gitlab.com/gorib/sql/-/blob/main/README.md#8-testing).
 
-`app.Postgres` is the generated `harness.Postgres`: `FailWith`, `Refuse` and
-`RefuseAfter`, and nothing the suite owns. It needs `gitlab.com/gorib/sql`
-v1.15.0 or later, so a service moves onto it before it regenerates the harness.
+`app.Postgres` is the generated `harness.Postgres`: `FailWith`, `Refuse`,
+`RefuseAfter`, `RefuseCommit` and `Heal`, and nothing the suite owns. It needs
+`gitlab.com/gorib/sql` v1.15.1 or later, so a service moves onto it before it
+regenerates the harness.
 
 `Postgres` and `Redis` are on `App` where the harness filled the seam, like a
 recorder; a scenario that supplied its own `SqlDb` gets no `Postgres`. They need
