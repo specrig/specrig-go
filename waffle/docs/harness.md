@@ -119,12 +119,12 @@ Three methods, and two optional halves discovered by assertion: `Named` (its nam
 
 ### Migrations of one domain do not depend on another's
 
-The sources run in name order, and nothing lets a service change it: the daemon's own migrate command takes them from a `di.Tags` collection, which is an unordered set, so an order the harness pinned would hold only in the tests. What holds instead is that no order can matter, and `CheckMigrations` — `tests/migrations_test.go` — checks it two ways:
+The sources run as one set, in version order, in the daemon's migrate command and in the harness alike. Versions are timestamps, so they order one domain's migrations but say nothing about another's: a migration that needs another domain's table holds only because that domain's timestamp happens to be older. `CheckMigrations` — `tests/migrations_test.go` — checks that nothing leans on that, two ways:
 
 - **every domain applies alone to an empty database** of its own, `<name>_test_<domain>` beside the run's. A table whose trigger calls another domain's function fails here, naming the domain.
-- **a version two domains ship is the same file.** The sources share one bookkeeping table, so goose applies whichever copy runs first and skips the other without a word; `waffleMigrate.CheckShared` refuses two different files under one version.
+- **a version two domains ship is the same file.** The sources share one bookkeeping table, so a version runs once, and two different files under one version stop every migrate command before anything runs. `waffleMigrate.CheckShared` refuses them too, earlier and naming the domains.
 
-Together they are the fix as well: a domain that needs a function another domain creates ships its own byte-identical copy of that migration, under the same version. A database that already has it skips the copy; an empty one gets it from whichever domain comes first.
+Together they are the fix as well: a domain that needs a function another domain creates ships its own byte-identical copy of that migration, under the same version. It runs once whichever domains carry it, and a database that already has it skips it.
 
 `Suffix(name)` is what gives the check its own database when the address is a DSN — `Database` is ignored there, and the check would otherwise land in the run's database and drop it.
 
