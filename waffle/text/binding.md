@@ -55,6 +55,11 @@ An outage is not a replacement: the step calls `app.Postgres.FailWith(nil)` —
 `Redis` and `Publisher` likewise — and the next `Reset` heals it. Do not ask for
 a grant on the client to fake one.
 
+A write that fails halfway is not an outage either: `app.Postgres.Refuse(ctx,
+table)` makes one table refuse writes, `RefuseAfter(ctx, table, rows)` lets that
+many rows through first, and reads keep working, so a `Then` can check what the
+failed write left. Do not create triggers by hand: `Reset` lifts only these.
+
 `docs/harness.md` in specrig-go's waffle adapter has the catalogue — which
 recorder exists for which seam — and the reasoning behind a particular grant.
 Read it to understand what you were given; it is not a licence to change it.

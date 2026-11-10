@@ -723,6 +723,9 @@ func TestFirstRunScaffoldsTheSuiteAndGeneratesTheHarness(t *testing.T) {
 		// Boot brings the resources up itself, so a scenario cannot forget.
 		"if err := Up(ctx); err != nil {",
 		"if cut.SqlDb == nil {\n\t\tcut.SqlDb, app.Postgres = postgres.Db(), postgres",
+		"\tPostgres Postgres\n",
+		"Refuse(ctx context.Context, table string, writes ...sqltest.Write) error",
+		"RefuseAfter(ctx context.Context, table string, rows int, writes ...sqltest.Write) error",
 	)
 }
 

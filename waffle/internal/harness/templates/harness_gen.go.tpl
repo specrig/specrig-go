@@ -134,12 +134,19 @@ return fmt.Errorf("the %s migrations do not apply to an empty database on their 
 }
 return nil
 }
+
+// All a step gets of the database: Provision and Reset belong to the suite.
+type Postgres interface {
+resource.Fault
+Refuse(ctx context.Context, table string, writes ...sqltest.Write) error
+RefuseAfter(ctx context.Context, table string, rows int, writes ...sqltest.Write) error
+}
 {{end}}
 type App struct {
 *{{.Package}}.Application
 {{if .HookExtra}}extra
 {{end}}{{if .Postgres}}
-Postgres resource.Fault{{end}}{{if .Redis}}
+Postgres Postgres{{end}}{{if .Redis}}
 Redis resource.Fault{{end}}{{if .Logger}}
 Logger *pry.LogRecorder{{end}}{{if .Hilton}}
 Telemetry *hilton.Recording{{end}}{{if .Consumer}}

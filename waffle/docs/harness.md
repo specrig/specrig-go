@@ -103,7 +103,7 @@ type Resource interface {
 }
 ```
 
-Three methods, and two optional halves discovered by assertion: `Named` (its name is quoted in errors) and `Ephemeral` (`Down(ctx)`, for a resource with something to remove when the run ends). A third, `Fault` (`FailWith(err)`), is not for `Set`: it is all of a resource that `App` hands a step — see [A resource that goes down](#a-resource-that-goes-down).
+Three methods, and two optional halves discovered by assertion: `Named` (its name is quoted in errors) and `Ephemeral` (`Down(ctx)`, for a resource with something to remove when the run ends). A third, `Fault` (`FailWith(err)`), is not for `Set`: it is what `App` hands a step of a resource, Postgres adding the refusal of one table — see [A resource that goes down](#a-resource-that-goes-down).
 
 `Set` runs them: `Up` provisions and migrates **once per run** and memoizes the failure, so a hundred scenarios report the first diagnosis instead of hammering an absent server. `Reset` calls `Up` first, so a suite that only ever calls `Reset` is still correct. `Down` tears down in reverse and does not stop at the first failure.
 
@@ -285,6 +285,10 @@ table until the next `Reset`; `RefuseAfter(ctx, "invoices", 1)` lets the first r
 through. A trigger refuses, so the scenario's own connections are refused as well:
 write the fixtures before the step that refuses. The details are in the
 [sql README](https://gitlab.com/gorib/sql/-/blob/main/README.md#8-testing).
+
+`app.Postgres` is the generated `harness.Postgres`: `FailWith`, `Refuse` and
+`RefuseAfter`, and nothing the suite owns. It needs `gitlab.com/gorib/sql`
+v1.15.0 or later, so a service moves onto it before it regenerates the harness.
 
 `Postgres` and `Redis` are on `App` where the harness filled the seam, like a
 recorder; a scenario that supplied its own `SqlDb` gets no `Postgres`. They need
