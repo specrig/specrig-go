@@ -24,6 +24,7 @@ func (k kind) String() string {
 const (
 	httpServer = "gitlab.com/gorib/http/server"
 	httpClient = "gitlab.com/gorib/http/client"
+	scribus    = "gitlab.com/gorib/waffle/tools/scribus"
 )
 
 // Where a name leaves the service, library by library.

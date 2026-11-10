@@ -80,7 +80,7 @@ func Extract(root string) (surface.Surface, error) {
 				if !ok || fd.Body == nil {
 					continue
 				}
-				if consumer(p.TypesInfo, fd) {
+				if x.consumer(p.TypesInfo, fd) {
 					keys := constants(p.TypesInfo, fd.Body)
 					if len(keys) == 0 {
 						x.lost = append(x.lost, x.at(fd.Pos())+": Keys returns no constant")
@@ -202,8 +202,7 @@ func callee(info *types.Info, call *ast.CallExpr) *types.Func {
 	return fn
 }
 
-// tools/scribus's handlers name their keys in Keys() []string.
-func consumer(info *types.Info, fd *ast.FuncDecl) bool {
+func (x *extraction) consumer(info *types.Info, fd *ast.FuncDecl) bool {
 	if fd.Recv == nil || fd.Name.Name != "Keys" {
 		return false
 	}
@@ -211,16 +210,17 @@ func consumer(info *types.Info, fd *ast.FuncDecl) bool {
 	if !ok {
 		return false
 	}
-	sig := fn.Type().(*types.Signature)
-	if sig.Params().Len() != 0 || sig.Results().Len() != 1 {
-		return false
+	handler := types.NewPointer(deref(fn.Type().(*types.Signature).Recv().Type()))
+	for _, typ := range []string{"Handler", "BatchHandler"} {
+		lib := x.lib(scribus, typ)
+		if lib == nil {
+			continue
+		}
+		if iface, ok := lib.Underlying().(*types.Interface); ok && types.Implements(handler, iface) {
+			return true
+		}
 	}
-	slice, ok := sig.Results().At(0).Type().(*types.Slice)
-	if !ok {
-		return false
-	}
-	elem, ok := slice.Elem().(*types.Basic)
-	return ok && elem.Kind() == types.String
+	return false
 }
 
 func (x *extraction) resolve(p *packages.Package, fd *ast.FuncDecl, arg ast.Expr, depth int) ([]string, []string) {

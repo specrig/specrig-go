@@ -54,4 +54,10 @@ func (s *service) register(server any) { pb.RegisterOrderServiceServer(server, s
 
 type paid struct{}
 
-func (paid) Keys() []string { return []string{"payments.succeeded", "stock.#"} }
+func (paid) Keys() []string { return []string{"payments.succeeded"} }
+func (paid) Run(any) error  { return nil }
+
+type stocked struct{}
+
+func (*stocked) Keys() []string  { return []string{"stock.#"} }
+func (*stocked) Run([]any) error { return nil }

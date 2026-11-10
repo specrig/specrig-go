@@ -27,7 +27,7 @@ writes `tests/surface.yaml` from the module's code; the `generate` target runs i
 | | recognised at |
 |---|---|
 | publishes | `outbox.Publisher.Publish`/`Enqueue`, `amqp.Publisher.Publish`, the `amqp091` channel's `Publish*` |
-| consumes | `amqp` `Bind`, the `amqp091` channel's `QueueBind` |
+| consumes | `amqp` `Bind`, the `amqp091` channel's `QueueBind`, the `Keys` of a `scribus.Handler` or `BatchHandler` |
 | serves | `grpc` `RegisterService` (by the `_ServiceDesc` it is given), and every route of a `gitlab.com/gorib/http/server` mux under its group prefixes |
 | calls | `grpc` `Invoke` and `NewStream` — a generated client's own calls — and requests through `gitlab.com/gorib/http/client`, a variable path segment written `{}`, a path with no constant part at all written `external` |
 | domains | in a modular monolith, a call from `domain/A/adapter` to a `domain/B/service` type the container wires in: `rent → invoice: Invoices.Issue` |
