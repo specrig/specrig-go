@@ -7,7 +7,7 @@ require (
 	gitlab.com/gorib/amqp v1.9.4
 	gitlab.com/gorib/env v1.0.3
 	gitlab.com/gorib/failure v1.4.1
-	gitlab.com/gorib/waffle v1.25.2
+	gitlab.com/gorib/waffle v1.25.3
 	golang.org/x/tools v0.52.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261026165753-2ffab32bce7e
 	google.golang.org/grpc v1.84.0
@@ -25,7 +25,7 @@ require (
 	github.com/rabbitmq/amqp091-go v1.16.0 // indirect
 	gitlab.com/gorib/grpc v1.7.2 // indirect
 	gitlab.com/gorib/hilton v1.2.5 // indirect
-	gitlab.com/gorib/http v1.15.0 // indirect
+	gitlab.com/gorib/http v1.15.1 // indirect
 	gitlab.com/gorib/pry v1.4.3 // indirect
 	gitlab.com/gorib/session v1.2.1 // indirect
 	gitlab.com/gorib/whisk v1.4.1 // indirect
