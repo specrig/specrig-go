@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -138,9 +139,39 @@ func (s *fakeStream) invoke(name string, args ...reflect.Value) error {
 	return err
 }
 
-func (s *fakeStream) Header() (metadata.MD, error) { return metadata.MD{}, nil }
-func (s *fakeStream) Trailer() metadata.MD         { return metadata.MD{} }
-func (s *fakeStream) Context() context.Context     { return s.ctx }
+func (s *fakeStream) Header() (metadata.MD, error) {
+	md, answered, err := s.header()
+	if !answered {
+		return metadata.MD{}, nil
+	}
+	if err != nil {
+		s.end(err)
+	}
+	return md, err
+}
+
+// A fake that embeds a nil grpc.ClientStream has no Header of its own, and its stream
+// sends the headers at once; one that declares Header sends them when it says.
+func (s *fakeStream) header() (md metadata.MD, answered bool, err error) {
+	if !s.stream.IsValid() {
+		return nil, false, nil
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			if _, ok := p.(runtime.Error); !ok {
+				panic(p)
+			}
+			md, answered, err = nil, false, nil
+		}
+	}()
+	results := s.stream.MethodByName("Header").Call(nil)
+	md, _ = results[0].Interface().(metadata.MD)
+	err, _ = results[1].Interface().(error)
+	return md, true, err
+}
+
+func (s *fakeStream) Trailer() metadata.MD     { return metadata.MD{} }
+func (s *fakeStream) Context() context.Context { return s.ctx }
 
 func (c inbound) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
 	r := newRecording("in", method, desc)

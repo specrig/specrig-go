@@ -64,3 +64,8 @@ func (r *response) Write(b []byte) (int, error) {
 	r.body.Write(b)
 	return r.ResponseWriter.Write(b)
 }
+
+// A handler that takes the connection over, as a websocket does, reaches it through Unwrap.
+func (r *response) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}

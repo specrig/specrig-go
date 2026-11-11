@@ -6,11 +6,13 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"time"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	testpb "google.golang.org/grpc/interop/grpc_testing"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"gitlab.com/gorib/failure"
@@ -202,6 +204,64 @@ func TestAReplacedBidiStreamPassesBothWays(t *testing.T) {
 	r := recorded(t, "out", testpb.TestService_FullDuplexCall_FullMethodName)
 	if sent, received := count(t, r.Request), count(t, r.Response); sent != 1 || received != 1 {
 		t.Errorf("recorded %d sent and %d received, want 1 and 1", sent, received)
+	}
+}
+
+type holding struct {
+	release chan struct{}
+}
+
+func (h holding) StreamingOutputCall(context.Context, *testpb.StreamingOutputCallRequest, ...grpc.CallOption) (grpc.ServerStreamingClient[testpb.StreamingOutputCallResponse], error) {
+	return &held{release: h.release}, nil
+}
+
+type held struct {
+	replies
+	release chan struct{}
+}
+
+func (h *held) Header() (metadata.MD, error) {
+	<-h.release
+	return metadata.Pairs("watching", "yes"), nil
+}
+
+func TestAReplacedStreamSendsItsHeadersWhenTheFakeDoes(t *testing.T) {
+	Enable("shop")
+	release := make(chan struct{})
+	client := testpb.NewTestServiceClient(Outbound(holding{release: release}))
+
+	stream, err := client.StreamingOutputCall(t.Context(), asking(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent := make(chan metadata.MD, 1)
+	go func() {
+		md, _ := stream.Header()
+		sent <- md
+	}()
+
+	select {
+	case <-sent:
+		t.Fatal("the headers came before the fake sent them")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	if md := <-sent; len(md.Get("watching")) != 1 {
+		t.Errorf("the headers are %v, not the fake's", md)
+	}
+}
+
+func TestAReplacedStreamWithoutHeadersOfItsOwnSendsThemAtOnce(t *testing.T) {
+	Enable("shop")
+	client := testpb.NewTestServiceClient(Outbound(neighbour{}))
+
+	stream, err := client.StreamingOutputCall(t.Context(), asking(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := stream.Header(); err != nil {
+		t.Errorf("the headers of a fake without Header: %v", err)
 	}
 }
 
