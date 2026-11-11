@@ -40,6 +40,8 @@ github.com/specrig/specrig-go v0.2.4 h1:NyTUyZuhsETuMBPP+bfNW+cY6rhQc1Fou5fTgh3t
 github.com/specrig/specrig-go v0.2.4/go.mod h1:DAJMPR0n+oBXa+bXZSVQlu1eEKXiHsyRjnFu0SmYy8Y=
 github.com/specrig/specrig-go v0.3.0 h1:ac83tc7HaLytKU4mFs30NF73yjZyQRPBzqA9TfQwksE=
 github.com/specrig/specrig-go v0.3.0/go.mod h1:TdXhS+wqJ/c+05CXFnPi4KDDQ4PmqTthaCUIi3KGYE4=
+github.com/specrig/specrig-go v0.3.1 h1:vq2Chphidj3uqkTmTeUU0JLt/C2iUzvn9ZfeRy75AFU=
+github.com/specrig/specrig-go v0.3.1/go.mod h1:TdXhS+wqJ/c+05CXFnPi4KDDQ4PmqTthaCUIi3KGYE4=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
 gitlab.com/gorib/amqp v1.9.4 h1:2TdeaeQ5LT/mESaqH00Gi1q6E38eWt29M2hUDidn3xY=
