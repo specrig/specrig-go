@@ -118,6 +118,19 @@ func TestAnAnswerAgainstTheSchema(t *testing.T) {
 	}
 }
 
+func TestAComputedAnswerAgainstTheSchema(t *testing.T) {
+	b, c := newBackend(t, Options{Name: "orders", Contract: orders})
+	b.ReplyWith("GET", "/orders/{id}", func(r Received) (int, any) {
+		return 200, map[string]any{"id": strings.TrimPrefix(r.Path, "/orders/"), "sku": 5}
+	})
+
+	send(t, c, "GET", "/orders/1", "")
+
+	if got := violations(t, b); !strings.Contains(got, "GET /orders/1 answered 200: response body doesn't match schema") {
+		t.Errorf("failure = %s", got)
+	}
+}
+
 func TestAnUndocumentedStatusIsAViolation(t *testing.T) {
 	b, c := newBackend(t, Options{Name: "orders", Contract: orders})
 	b.Reply("GET", "/orders/1", 418, map[string]any{"code": "teapot"})

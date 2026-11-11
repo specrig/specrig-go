@@ -95,13 +95,13 @@ func build(service string, records []trace.Record, cases features) Doc {
 		marked := slices.ContainsFunc(run, func(r trace.Record) bool { return r.Step != "" })
 		acting := func(r trace.Record) bool { return !marked || r.Step == "Action" }
 		last := -1
-		sent := map[int][]string{} // in the order it happened
+		sent := map[int][]trace.Record{} // in the order it happened
 		carried := map[int]map[string]map[string]bool{}
 		for i, r := range run {
 			switch {
 			case r.Dir == "in" && acting(r):
 				last = i
-				sent[i] = []string{}
+				sent[i] = []trace.Record{}
 				carried[i] = map[string]map[string]bool{}
 				m := message(r.Kind, r.Name)
 				if inputs[m] == nil {
@@ -117,7 +117,7 @@ func build(service string, records []trace.Record, cases features) Doc {
 				}
 				paths(r.Request, outputs[m])
 				if last >= 0 && acting(r) {
-					sent[last] = append(sent[last], m)
+					sent[last] = append(sent[last], r)
 					if carried[last][m] == nil {
 						carried[last][m] = map[string]bool{}
 					}
@@ -130,7 +130,7 @@ func build(service string, records []trace.Record, cases features) Doc {
 				continue
 			}
 			m := message(r.Kind, r.Name)
-			k := key{sends: strings.Join(passes(sent[i]), "\n"), refusal: r.Error}
+			k := key{sends: strings.Join(passes(settled(sent[i])), "\n"), refusal: r.Error}
 			b := branches[m][k]
 			if b == nil {
 				b = &Branch{Refusal: k.refusal}
@@ -238,6 +238,38 @@ func needs(received map[*Branch]*shape, answered []*Branch) map[string][]string 
 		return nil
 	}
 	return out
+}
+
+// Goroutines started at one place send in an order of chance.
+func settled(sends []trace.Record) []string {
+	names := make([]string, len(sends))
+	places := map[string][]int{}
+	goroutines := map[string]map[uint64]bool{}
+	for i, r := range sends {
+		names[i] = message(r.Kind, r.Name)
+		if r.Spawned == "" {
+			continue
+		}
+		places[r.Spawned] = append(places[r.Spawned], i)
+		if goroutines[r.Spawned] == nil {
+			goroutines[r.Spawned] = map[uint64]bool{}
+		}
+		goroutines[r.Spawned][r.Goroutine] = true
+	}
+	for spawned, at := range places {
+		if len(goroutines[spawned]) < 2 {
+			continue
+		}
+		together := make([]string, len(at))
+		for i, p := range at {
+			together[i] = names[p]
+		}
+		slices.Sort(together)
+		for i, p := range at {
+			names[p] = together[i]
+		}
+	}
+	return names
 }
 
 func passes(sends []string) []string {

@@ -66,7 +66,8 @@ hand: `Heal` and `Reset` lift only these.
 A neighbour over HTTP is not a replacement either, where its transport comes from
 the container: the harness stands in for it under the client, and a step says what
 it answers — `app.Neighbours.<Name>.Reply(method, path, status, body)`, `ReplyTo` for a
-query, `TimeOut`, `Hold` and `Release` — and reads what reached it with
+query, `ReplyWith` for an answer worked out from the request, `TimeOut` and `Heal`,
+`Hold` and `Release` — and reads what reached it with
 `Requests(method, path)`. A segment in braces, `/orders/{id}`, takes any value, and
 the exact path wins. A call no step answered, or one the neighbour's contract does
 not allow, fails the scenario.

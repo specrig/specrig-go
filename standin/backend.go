@@ -55,6 +55,7 @@ type reply struct {
 	status int
 	body   []byte
 	header http.Header
+	answer func(Received) (int, any)
 }
 
 type Option func(*reply)
@@ -71,6 +72,7 @@ type waiting struct {
 	call     string
 	ctx      context.Context
 	released chan struct{}
+	ended    bool
 }
 
 type call struct {
@@ -106,37 +108,61 @@ func (b *Backend) Reply(method, path string, status int, body any, opts ...Optio
 }
 
 func (b *Backend) ReplyTo(method, path string, query url.Values, status int, body any, opts ...Option) {
-	r := &reply{status: status, header: http.Header{}}
-	for _, o := range opts {
-		o(r)
-	}
-	if status != http.StatusNoContent {
-		contentType := "application/json"
-		switch v := body.(type) {
-		case nil:
-			r.body = []byte("{}")
-		case []byte:
-			r.body, contentType = slices.Clone(v), "application/octet-stream"
-		default:
-			encoded, err := json.Marshal(v)
-			if err != nil {
-				panic(fmt.Sprintf("standin: the body of %s %s cannot be encoded: %v", method, path, err))
-			}
-			r.body = encoded
-		}
-		if r.header.Get("Content-Type") == "" {
-			r.header.Set("Content-Type", contentType)
-		}
-	}
+	r := made(method, path, status, body, headers(opts))
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.replies.set(method+" "+path, query, r)
+}
+
+func (b *Backend) ReplyWith(method, path string, answer func(Received) (int, any), opts ...Option) {
+	r := &reply{header: headers(opts), answer: answer}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.replies.set(method+" "+path, nil, r)
+}
+
+func headers(opts []Option) http.Header {
+	r := &reply{header: http.Header{}}
+	for _, o := range opts {
+		o(r)
+	}
+	return r.header
+}
+
+func made(method, path string, status int, body any, header http.Header) *reply {
+	r := &reply{status: status, header: header.Clone()}
+	if status == http.StatusNoContent {
+		return r
+	}
+	contentType := "application/json"
+	switch v := body.(type) {
+	case nil:
+		r.body = []byte("{}")
+	case []byte:
+		r.body, contentType = slices.Clone(v), "application/octet-stream"
+	default:
+		encoded, err := json.Marshal(v)
+		if err != nil {
+			panic(fmt.Sprintf("standin: the body of %s %s cannot be encoded: %v", method, path, err))
+		}
+		r.body = encoded
+	}
+	if r.header.Get("Content-Type") == "" {
+		r.header.Set("Content-Type", contentType)
+	}
+	return r
 }
 
 func (b *Backend) TimeOut(method, path string, query ...url.Values) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.timeouts.set(method+" "+path, first(query), struct{}{})
+}
+
+func (b *Backend) Heal() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.timeouts = table[struct{}]{}
 }
 
 func (b *Backend) Hold(method, path string, query ...url.Values) {
@@ -164,6 +190,25 @@ func (b *Backend) Release(method, path string, query ...url.Values) error {
 		close(w.released)
 	}
 	return nil
+}
+
+func (b *Backend) Reset() {
+	b.mu.Lock()
+	var held []*waiting
+	for _, key := range b.holds.keys {
+		for _, d := range b.holds.entries[key] {
+			held = append(held, d.value.waiting...)
+		}
+	}
+	for _, w := range held {
+		w.ended = true
+	}
+	b.replies, b.timeouts, b.holds = table[*reply]{}, table[struct{}]{}, table[*hold]{}
+	b.received, b.unanswered, b.violations = nil, nil, nil
+	b.mu.Unlock()
+	for _, w := range held {
+		close(w.released)
+	}
 }
 
 func (b *Backend) Requests(method, path string) []Received {
@@ -227,7 +272,7 @@ func (b *Backend) RoundTrip(req *http.Request) (*http.Response, error) {
 	var w *waiting
 	var timedOut bool
 	b.mu.Lock()
-	b.received = append(b.received, Received{Method: c.method, Path: c.path, Query: c.query, Header: req.Header.Clone(), Body: c.body})
+	b.received = append(b.received, c.received())
 	if violation != "" {
 		b.violations = append(b.violations, violation)
 	}
@@ -245,6 +290,9 @@ func (b *Backend) RoundTrip(req *http.Request) (*http.Response, error) {
 	if w != nil {
 		select {
 		case <-w.released:
+			if w.ended {
+				return nil, fmt.Errorf("%s: the scenario ended before a step released %s", b.name, w.call)
+			}
 		case <-req.Context().Done():
 			return nil, req.Context().Err()
 		}
@@ -266,6 +314,10 @@ func (b *Backend) fulfil(c *call) *http.Response {
 			Message string `json:"message"`
 		}{"unanswered", c.method + " " + c.path})
 		return c.respond(&reply{status: http.StatusNotImplemented, body: body, header: http.Header{"Content-Type": {"application/json"}}})
+	}
+	if r.answer != nil {
+		status, body := r.answer(c.received())
+		r = made(c.method, c.path, status, body, r.header)
 	}
 	if b.contract != nil && c.route != nil {
 		if msg := b.contract.response(c.route, c.req, r.status, r.header, r.body, b.failure); msg != "" {
@@ -296,6 +348,10 @@ func (c *call) name() string {
 		return c.method + " " + strings.TrimSuffix(c.route.base, "/") + c.route.Path
 	}
 	return c.method + " " + c.path
+}
+
+func (c *call) received() Received {
+	return Received{Method: c.method, Path: c.path, Query: c.query, Header: c.req.Header.Clone(), Body: c.body}
 }
 
 func (c *call) line() string {

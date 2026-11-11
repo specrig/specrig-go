@@ -155,8 +155,9 @@ type NeighbourOptions struct {
 {{range .Neighbours}}{{.Name}} standin.Options
 {{end}}}
 {{if .Godog}}
-// The scenario's own, checked when it ends.
-var standing []*standin.Backend
+// The last Boot's, never cleared before a scenario: a suite may boot once, or in
+// a hook of its own that runs before Steps'.
+var standing Neighbours
 {{end}}{{end}}
 type App struct {
 *{{.Package}}.Application
@@ -233,7 +234,7 @@ if err != nil {
 return nil, err
 }
 cut.{{.Field}}, app.Neighbours.{{.Name}} = backend, backend
-{{if $.Godog}}standing = append(standing, backend)
+{{if $.Godog}}standing.{{.Name}} = backend
 {{end}}}
 {{end}}
 application, err := {{.Package}}.InitAppWith({{.InitArgs}})
@@ -259,8 +260,7 @@ return traced
 func Steps(sc *godog.ScenarioContext) {
 sc.Before(func(ctx context.Context, s *godog.Scenario) (context.Context, error) {
 trace.Case(s.Uri)
-{{if .Neighbours}}standing = nil
-{{end}}return ctx, nil
+return ctx, nil
 })
 sc.StepContext().Before(func(ctx context.Context, st *godog.Step) (context.Context, error) {
 trace.Step(string(st.Type))
@@ -269,8 +269,12 @@ return ctx, nil
 {{if .Neighbours}}// A call no step answered, or that the contract does not allow, fails the scenario it came from.
 sc.After(func(ctx context.Context, _ *godog.Scenario, err error) (context.Context, error) {
 var failures []string
-for _, backend := range standing {
+for _, backend := range []*standin.Backend{ {{range .Neighbours}}standing.{{.Name}}, {{end}} } {
+if backend == nil {
+continue
+}
 failures = append(failures, backend.Failures()...)
+backend.Reset()
 }
 if len(failures) > 0 {
 err = errors.Join(err, errors.New(strings.Join(failures, "\n")))

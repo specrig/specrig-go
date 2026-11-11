@@ -352,6 +352,99 @@ func TestNoContentHasNoBody(t *testing.T) {
 	}
 }
 
+func TestReplyWithAnswersFromTheRequest(t *testing.T) {
+	b, c := newBackend(t, Options{})
+	b.ReplyWith("POST", "/orders/{id}", func(r Received) (int, any) {
+		var in struct{ Sku string }
+		if err := r.JSON(&in); err != nil {
+			return 400, err.Error()
+		}
+		return 201, map[string]any{"id": strings.TrimPrefix(r.Path, "/orders/"), "sku": in.Sku}
+	}, Header("X-Answer", "computed"))
+
+	for id, sku := range map[string]string{"1": "a", "2": "b"} {
+		resp, body := send(t, c, "POST", "/orders/"+id, `{"sku":"`+sku+`"}`)
+		if resp.StatusCode != 201 || body != `{"id":"`+id+`","sku":"`+sku+`"}` {
+			t.Errorf("order %s answered %d %s", id, resp.StatusCode, body)
+		}
+		if resp.Header.Get("Content-Type") != "application/json" || resp.Header.Get("X-Answer") != "computed" {
+			t.Errorf("order %s: header = %v", id, resp.Header)
+		}
+	}
+}
+
+func TestAComputedAnswerIsEncodedAsADeclaredOne(t *testing.T) {
+	b, c := newBackend(t, Options{})
+	b.ReplyWith("GET", "/empty", func(Received) (int, any) { return 200, nil })
+	b.ReplyWith("GET", "/mixed", func(r Received) (int, any) {
+		if r.Query.Has("raw") {
+			return 200, []byte("raw")
+		}
+		return 200, "json"
+	})
+	b.ReplyWith("GET", "/xml", func(Received) (int, any) { return 200, []byte("<a/>") }, Header("Content-Type", "application/xml"))
+	b.ReplyWith("DELETE", "/orders/1", func(Received) (int, any) { return 204, "ignored" })
+
+	for _, want := range []struct{ target, body, contentType string }{
+		{"/empty", "{}", "application/json"},
+		{"/mixed?raw", "raw", "application/octet-stream"},
+		{"/mixed", `"json"`, "application/json"},
+		{"/xml", "<a/>", "application/xml"},
+	} {
+		if resp, body := send(t, c, "GET", want.target, ""); body != want.body || resp.Header.Get("Content-Type") != want.contentType {
+			t.Errorf("%s answered %q %q", want.target, body, resp.Header.Get("Content-Type"))
+		}
+	}
+	resp, body := send(t, c, "DELETE", "/orders/1", "")
+	if resp.StatusCode != 204 || body != "" || resp.Header.Get("Content-Type") != "" {
+		t.Errorf("answered %d %q %q", resp.StatusCode, body, resp.Header.Get("Content-Type"))
+	}
+}
+
+func TestAComputedAnswerMayReadWhatReachedTheBackend(t *testing.T) {
+	b, c := newBackend(t, Options{})
+	b.ReplyWith("GET", "/session", func(r Received) (int, any) {
+		if len(b.Requests("GET", "/session")) == 1 {
+			return 401, "expired"
+		}
+		return 200, r.Header.Get("Authorization")
+	})
+
+	if resp, _ := send(t, c, "GET", "/session", ""); resp.StatusCode != 401 {
+		t.Errorf("the first call answered %d", resp.StatusCode)
+	}
+	req, err := http.NewRequest("GET", host+"/session", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer fresh")
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if raw, _ := io.ReadAll(resp.Body); resp.StatusCode != 200 || string(raw) != `"Bearer fresh"` {
+		t.Errorf("the second call answered %d %s", resp.StatusCode, raw)
+	}
+}
+
+func TestAComputedAnswerIsADeclarationNamingNoQuery(t *testing.T) {
+	b, c := newBackend(t, Options{})
+	b.ReplyWith("GET", "/orders", func(Received) (int, any) { return 200, "computed" })
+	b.ReplyTo("GET", "/orders", url.Values{"status": {"open"}}, 200, "open")
+
+	if _, body := send(t, c, "GET", "/orders?status=closed", ""); body != `"computed"` {
+		t.Errorf("closed answered %s", body)
+	}
+	if _, body := send(t, c, "GET", "/orders?status=open", ""); body != `"open"` {
+		t.Errorf("open answered %s", body)
+	}
+	b.Reply("GET", "/orders", 200, "declared")
+	if _, body := send(t, c, "GET", "/orders", ""); body != `"declared"` {
+		t.Errorf("answered %s after Reply", body)
+	}
+}
+
 func TestWhatNoDeclarationAnswersIs501AndAFailure(t *testing.T) {
 	b, c := newBackend(t, Options{Name: "orders"})
 	b.Reply("GET", "/orders/1", 200, nil)
@@ -417,6 +510,27 @@ func TestTimeOutTakesTheQueryItNames(t *testing.T) {
 	}
 	if resp, _ := send(t, c, "GET", "/orders?status=fast", ""); resp.StatusCode != 200 {
 		t.Errorf("fast answered %d", resp.StatusCode)
+	}
+}
+
+func TestHealLiftsEveryTimeOutAndKeepsTheReplies(t *testing.T) {
+	b, c := newBackend(t, Options{})
+	b.Reply("GET", "/orders", 200, "orders")
+	b.Reply("GET", "/stock", 200, "stock")
+	b.TimeOut("GET", "/orders")
+	b.TimeOut("GET", "/stock", url.Values{"sku": {"a"}})
+	b.Reply("GET", "/orders", 200, "orders again")
+
+	if _, err := c.Get(host + "/orders"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("a reply lifted the time-out: %v", err)
+	}
+	b.Heal()
+
+	if _, body := send(t, c, "GET", "/orders", ""); body != `"orders again"` {
+		t.Errorf("orders answered %s", body)
+	}
+	if _, body := send(t, c, "GET", "/stock?sku=a", ""); body != `"stock"` {
+		t.Errorf("stock answered %s", body)
 	}
 }
 
@@ -520,5 +634,32 @@ func TestWhatNoStepReleasedIsAFailureUnlessTheCallerGaveUp(t *testing.T) {
 	}
 	if got := b.Failures(); len(got) != 0 {
 		t.Errorf("failures = %q", got)
+	}
+}
+
+func TestResetForgetsTheScenario(t *testing.T) {
+	b, c := newBackend(t, Options{Name: "orders"})
+	b.Reply("GET", "/orders/1", 200, nil)
+	b.TimeOut("GET", "/slow")
+	b.Hold("GET", "/held")
+	send(t, c, "GET", "/orders/9", "")
+	held := async(context.Background(), c, "GET", "/held")
+	eventually(t, "the held request to arrive", func() bool { return len(b.Requests("GET", "/held")) == 1 })
+
+	b.Reset()
+
+	if o := receive(t, held); o.err == nil || !strings.Contains(o.err.Error(), "orders: the scenario ended before a step released GET /held") {
+		t.Errorf("the held request: %+v", o)
+	}
+	if got := b.Failures(); len(got) != 0 {
+		t.Errorf("failures = %q", got)
+	}
+	if got := b.Requests("GET", "/orders/9"); len(got) != 0 {
+		t.Errorf("requests = %v", got)
+	}
+	for _, target := range []string{"/orders/1", "/slow", "/held"} {
+		if resp, _ := send(t, c, "GET", target, ""); resp.StatusCode != 501 {
+			t.Errorf("%s answered %d after the reset", target, resp.StatusCode)
+		}
 	}
 }

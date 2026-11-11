@@ -1220,13 +1220,15 @@ func TestAGodogSuiteFailsAScenarioOnWhatItsStandInsFound(t *testing.T) {
 
 	run(t)
 
-	contains(t, "harness_gen.go", generatedFile(t),
-		"var standing []*standin.Backend",
-		"standing = append(standing, backend)",
-		"standing = nil",
+	body := generatedFile(t)
+	contains(t, "harness_gen.go", body,
+		"var standing Neighbours",
+		"standing.ServiceSecurityAdapter = backend",
 		"sc.After(func(ctx context.Context, _ *godog.Scenario, err error) (context.Context, error) {",
-		"failures = append(failures, backend.Failures()...)",
+		"for _, backend := range []*standin.Backend{standing.ServiceSecurityAdapter, standing.RfTransport} {",
+		"failures = append(failures, backend.Failures()...)\n\t\t\tbackend.Reset()",
 	)
+	lacks(t, "harness_gen.go", body, "standing = nil", "standing = Neighbours{}")
 }
 
 func TestAClientTheScenarioSuppliesIsTracedThroughItsOwnConstructor(t *testing.T) {

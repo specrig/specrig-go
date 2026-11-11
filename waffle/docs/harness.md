@@ -509,11 +509,13 @@ The harness knows the seam by `client.NewTransport` building it, so a service th
 |---|---|
 | `Reply(method, path, status, body, standin.Header(name, value)...)` | what the neighbour answers; `body` is JSON unless it is `[]byte` |
 | `ReplyTo(method, path, query, status, body, ...)` | the same, for a request whose query has these values; the one naming the most of them wins |
-| `TimeOut(method, path, query...)` | the client meets a timeout at once: an error that is `context.DeadlineExceeded` |
+| `ReplyWith(method, path, func(standin.Received) (status, body), ...)` | the answer worked out from each request: its body, its headers, what reached the neighbour before it; a declaration naming no query, encoded and checked as `Reply`'s |
+| `TimeOut(method, path, query...)` | the client meets a timeout at once: an error that is `context.DeadlineExceeded`; no reply lifts it |
+| `Heal()` | the neighbour answers again: every `TimeOut` is lifted, the replies stay |
 | `Hold`, `Release(method, path, query...)` | the request waits until a step releases it, and gets what is declared by then — for a call the step does not itself wait on |
 | `Requests(method, path)` | what reached it: method, path, query, header and body |
 
-A segment in braces, `/orders/{id}`, takes any value wherever a path is named, and the exact path wins. A call no step answered gets a 501; that, a request or an answer the contract does not allow, and a hold no step released fail the scenario when it ends — the `After` hook the generated `Steps` adds. The contract, and the schema of a 5xx the neighbour may answer on any route, are the `neighbours` hook's:
+A segment in braces, `/orders/{id}`, takes any value wherever a path is named, and the exact path wins. A call no step answered gets a 501; that, a request or an answer the contract does not allow, and a hold no step released fail the scenario when it ends — the `After` hook the generated `Steps` adds. The hook then calls `Reset`: the replies, time-outs, holds and requests are gone, and a request still held fails, so a suite that boots once starts every scenario with a stand-in as empty as one that boots in each. The contract, and the schema of a 5xx the neighbour may answer on any route, are the `neighbours` hook's:
 
 ```go
 func neighbours(n *NeighbourOptions) {

@@ -773,6 +773,31 @@ func TestAMessageNeedsTheFieldsThatTellItsSendersApart(t *testing.T) {
 	}
 }
 
+func TestWhatGoroutinesStartedTogetherSendIsInTheOrderOfItsNames(t *testing.T) {
+	const handler, downloads = "grpc.(*Server).serveStreams in goroutine 1", "sync.(*WaitGroup).Go in goroutine 40"
+	create := func(seq int64, scenario string, first, second string, handled uint64) []trace.Record {
+		out := func(seq int64, kind, name string, goroutine uint64, spawned string) trace.Record {
+			return trace.Record{Seq: seq, Scenario: scenario, Dir: "out", Kind: kind, Name: name, Goroutine: goroutine, Spawned: spawned}
+		}
+		return []trace.Record{
+			{Seq: seq, Scenario: scenario, Dir: "in", Kind: "grpc", Name: "/media.Media/Create"},
+			out(seq+1, "http", first, handled+1, downloads),
+			out(seq+2, "http", second, handled+2, downloads),
+			out(seq+3, "grpc", "/store.Store/Put", handled, handler),
+			out(seq+4, "grpc", "/audit.Audit/Log", handled, handler),
+		}
+	}
+	doc := build("media", slices.Concat(
+		create(1, "TestFeatures/A", "GET /img/2.png", "GET /img/1.png", 40),
+		create(6, "TestFeatures/B", "GET /img/1.png", "GET /img/2.png", 50),
+	), features{})
+
+	want := []string{"http GET /img/1.png", "http GET /img/2.png", "grpc /store.Store/Put", "grpc /audit.Audit/Log"}
+	if len(doc.Inputs[0].Branches) != 1 || !slices.Equal(doc.Inputs[0].Branches[0].Sends, want) {
+		t.Errorf("branches %+v, want one sending %v", doc.Inputs[0].Branches, want)
+	}
+}
+
 // Most cases name a unit, and the one redeeming a promo does too; the promo is
 // what redeems it, so a contract for a unit type with a promo still does.
 func TestAFieldCorrelatedInTheFixturesIsNoNeed(t *testing.T) {

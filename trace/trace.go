@@ -3,9 +3,12 @@
 package trace
 
 import (
+	"bytes"
 	"encoding/json"
 	"reflect"
+	"runtime"
 	"slices"
+	"strconv"
 	"sync"
 	"sync/atomic"
 )
@@ -24,6 +27,10 @@ type Record struct {
 	Request  json.RawMessage
 	Response json.RawMessage
 	Error    string // the refusal by code and failure type
+	// Goroutines started together begin their calls in no fixed order: the
+	// goroutine a call was made on, and where that goroutine was started.
+	Goroutine uint64
+	Spawned   string
 }
 
 var (
@@ -31,6 +38,7 @@ var (
 	on       atomic.Bool
 	mu       sync.Mutex
 	kept     []Record
+	begun    = map[int64]Record{}
 	service  string
 	scenario string
 	feature  string
@@ -92,17 +100,53 @@ func On() bool { return on.Load() }
 
 // Begin takes the next place in the order, for a call that writes its record
 // once it returns.
-func Begin() int64 { return seq.Add(1) }
+func Begin() int64 {
+	n := seq.Add(1)
+	if on.Load() {
+		r := Record{}
+		r.Goroutine, r.Spawned = goroutine()
+		mu.Lock()
+		begun[n] = r
+		mu.Unlock()
+	}
+	return n
+}
 
 // Write keeps r under the scenario and step on now, in its place or the next one.
 func Write(r Record) {
+	id, spawned := goroutine()
 	mu.Lock()
 	defer mu.Unlock()
 	r.Service, r.Scenario, r.Feature, r.Step = service, scenario, feature, step
+	r.Goroutine, r.Spawned = id, spawned
 	if r.Seq == 0 {
 		r.Seq = seq.Add(1)
+	} else if b, ok := begun[r.Seq]; ok {
+		r.Goroutine, r.Spawned = b.Goroutine, b.Spawned
+		delete(begun, r.Seq)
 	}
 	kept = append(kept, r)
+}
+
+// A stack opens with "goroutine 9 [" and ends with "created by f in goroutine 7".
+func goroutine() (uint64, string) {
+	buf := make([]byte, 1<<12)
+	for {
+		n := runtime.Stack(buf, false)
+		if n < len(buf) {
+			buf = buf[:n]
+			break
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+	head, _, _ := bytes.Cut(bytes.TrimPrefix(buf, []byte("goroutine ")), []byte(" "))
+	id, _ := strconv.ParseUint(string(head), 10, 64)
+	_, created, ok := bytes.Cut(buf, []byte("\ncreated by "))
+	if !ok {
+		return id, ""
+	}
+	line, _, _ := bytes.Cut(created, []byte("\n"))
+	return id, string(line)
 }
 
 // Raw is body as a record holds it: JSON as it is, anything else quoted.
