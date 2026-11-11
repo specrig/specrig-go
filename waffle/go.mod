@@ -7,7 +7,7 @@ require (
 	gitlab.com/gorib/amqp v1.9.4
 	gitlab.com/gorib/env v1.0.3
 	gitlab.com/gorib/failure v1.4.1
-	gitlab.com/gorib/waffle v1.24.0
+	gitlab.com/gorib/waffle v1.25.1
 	golang.org/x/tools v0.52.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261026165753-2ffab32bce7e
 	google.golang.org/grpc v1.84.0
