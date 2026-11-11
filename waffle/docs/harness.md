@@ -535,6 +535,8 @@ The **lists** come from the container for the same reason — `a.ServerIntercept
 
 `waffleHttp.Serve` is the same idea over `httptest`. It returns a `URL` and a `Client` — an ordinary `*http.Client`, so a scenario writes an ordinary request. The routers and the global chain are the container's own, and `Setup` is the same function the daemon runs, so the routes, the collision check and the middleware under test are the ones that ship — including its two errors, which is why `Serve` returns one. Both `InProcess` types close in `Clients.Close`.
 
+A service deployed as several HTTP commands — a gateway with `http:customer` and `http:admin`, each a process of its own — gets each served on a mux of its own, as each process builds one, under a field named after the container field the command is stored in: `httpCustomerCommand` is `clients.Customer`. Commands stored in fields that do not tell them apart are refused, rather than one of them served and the others dropped.
+
 ## Rules that came from being wrong
 
 - **Infrastructure is a requirement, not an inconvenience.** If the database is unreachable the harness fails loudly. A suite that silently skips looks green.

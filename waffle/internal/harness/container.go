@@ -39,7 +39,7 @@ type shape struct {
 	Dead         []conn
 	Neighbours   []neighbour
 	Grpc         wiring
-	Http         wiring
+	Http         []webCommand
 	Variables    []variable
 	Clients      []client
 	Outbound     []outbound
@@ -64,6 +64,30 @@ type wiring struct {
 }
 
 func (w wiring) Present() bool { return w.Handlers != "" || w.Mux != "" }
+
+// One NewHttpCommand: Name is its field on Clients when the service has several.
+type webCommand struct {
+	Name string
+	wiring
+}
+
+// The one command a single-command service serves the way it always has, on the
+// container's own mux.
+func (s shape) soleHttp() wiring {
+	if len(s.Http) != 1 {
+		return wiring{}
+	}
+	return s.Http[0].wiring
+}
+
+func (s shape) httpRecords() []map[string]string {
+	if len(s.Http) < 2 {
+		return nil
+	}
+	return records(s.Http, func(web webCommand) map[string]string {
+		return map[string]string{"Name": web.Name, "Global": web.Global, "Routers": web.Routers}
+	})
+}
 
 type conn struct {
 	Field string
@@ -142,18 +166,110 @@ func read(container waffle.Container, importPath string, seams []waffle.Seam) (s
 
 	fields := containerFields(file)
 	out.Grpc = commandArgs(body, fields, "NewGrpcCommand")
-	out.Http = commandArgs(body, fields, "NewHttpCommand")
-	if out.Http.Mux != "" && out.Http.Routers == "" {
-		return shape{}, fmt.Errorf("%s passes no []server.Router to NewHttpCommand: the http "+
-			"command collects its routers now — register each one with di.Define(NewRouter, "+
-			"di.Tag(http.RouterTag)) and regenerate the container", container.File)
+	if out.Http, err = httpCommands(body, fields); err != nil {
+		return shape{}, fmt.Errorf("%s: %w", container.File, err)
 	}
-	if out.Http.Mux != "" && out.Http.Global == "" {
-		return shape{}, fmt.Errorf("%s passes no http.Global to NewHttpCommand: the global "+
-			"middleware chain belongs to the server now, not to a router — regenerate the "+
-			"container and take the middleware chain out of your routers", container.File)
+	for _, web := range out.Http {
+		if web.Routers == "" {
+			return shape{}, fmt.Errorf("%s passes no []server.Router to NewHttpCommand: the http "+
+				"command collects its routers now — register each one with di.Define(NewRouter, "+
+				"di.Tag(http.RouterTag)) and regenerate the container", container.File)
+		}
+		if web.Global == "" {
+			return shape{}, fmt.Errorf("%s passes no http.Global to NewHttpCommand: the global "+
+				"middleware chain belongs to the server now, not to a router — regenerate the "+
+				"container and take the middleware chain out of your routers", container.File)
+		}
 	}
 	return out, nil
+}
+
+// Every NewHttpCommand, named by the container field it is stored in: a service
+// deployed as several HTTP commands serves each in a process of its own.
+func httpCommands(body *ast.BlockStmt, types map[string]string) ([]webCommand, error) {
+	var out []webCommand
+	if body == nil {
+		return out, nil
+	}
+	ast.Inspect(body, func(n ast.Node) bool {
+		block, ok := n.(*ast.BlockStmt)
+		if !ok {
+			return true
+		}
+		for i, stmt := range block.List {
+			local, call, ok := definedBy(stmt, "NewHttpCommand")
+			if !ok {
+				continue
+			}
+			var web webCommand
+			for _, arg := range call.Args {
+				if name, ok := waffle.QualifiedBy(arg, "container"); ok {
+					web.assign(name, types[name])
+				}
+			}
+			web.Name = commandName(storedIn(block.List[i+1:], local))
+			out = append(out, web)
+		}
+		return true
+	})
+	if len(out) > 1 {
+		seen := map[string]bool{}
+		for _, web := range out {
+			if web.Name == "" || seen[web.Name] {
+				return nil, fmt.Errorf("NewHttpCommand is built %d times, and the fields it is "+
+					"stored in do not tell the commands apart: wire each as a type of its own, "+
+					"di.Wire[http.CustomerCommand](http.NewHttpCommand, ...)", len(out))
+			}
+			seen[web.Name] = true
+		}
+	}
+	return out, nil
+}
+
+// `s := pkg.Constructor(...)`, as diogen writes every build.
+func definedBy(stmt ast.Stmt, constructor string) (string, *ast.CallExpr, bool) {
+	assign, ok := stmt.(*ast.AssignStmt)
+	if !ok || assign.Tok != token.DEFINE || len(assign.Lhs) == 0 || len(assign.Rhs) != 1 {
+		return "", nil, false
+	}
+	call, ok := assign.Rhs[0].(*ast.CallExpr)
+	if !ok {
+		return "", nil, false
+	}
+	if name, ok := waffle.QualifiedBy(call.Fun, ""); !ok || name != constructor {
+		return "", nil, false
+	}
+	local, ok := assign.Lhs[0].(*ast.Ident)
+	if !ok {
+		return "", nil, false
+	}
+	return local.Name, call, true
+}
+
+func storedIn(stmts []ast.Stmt, local string) string {
+	for _, stmt := range stmts {
+		assign, ok := stmt.(*ast.AssignStmt)
+		if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
+			continue
+		}
+		if value, ok := assign.Rhs[0].(*ast.Ident); !ok || value.Name != local {
+			continue
+		}
+		if field, ok := waffle.QualifiedBy(assign.Lhs[0], "container"); ok {
+			return field
+		}
+	}
+	return ""
+}
+
+// httpCustomerCommand reads as Customer: the field diogen names after the type
+// the command is wired as, http.CustomerCommand.
+func commandName(field string) string {
+	name := strings.TrimSuffix(strings.TrimPrefix(field, "http"), "Command")
+	if name == "" || !unicode.IsUpper(rune(name[0])) {
+		return exported(field)
+	}
+	return name
 }
 
 // What Boot supplies whenever the scenario did not, so the container never

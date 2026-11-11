@@ -180,10 +180,11 @@ func plan(project *command.Project, own hooks) (map[string]any, found, error) {
 		"GrpcHandlers":     s.Grpc.Handlers,
 		"GrpcInterceptors": s.Grpc.Interceptors,
 		"GrpcStream":       s.Grpc.Stream,
-		"Http":             s.Http.Mux != "",
-		"HttpMux":          s.Http.Mux,
-		"HttpGlobal":       s.Http.Global,
-		"HttpRouters":      s.Http.Routers,
+		"Http":             len(s.Http) > 0,
+		"HttpMux":          s.soleHttp().Mux,
+		"HttpGlobal":       s.soleHttp().Global,
+		"HttpRouters":      s.soleHttp().Routers,
+		"HttpCommands":     s.httpRecords(),
 		"HookEnv":          own.Env,
 		"HookSetup":        own.Setup,
 		"HookResources":    own.Resources,
@@ -296,8 +297,11 @@ func imports(s shape, own hooks, migrations []map[string]string, container, pkg 
 	if s.Grpc.Present() {
 		add("waffleGrpc", "gitlab.com/gorib/waffle/tools/grpc")
 	}
-	if s.Http.Present() {
+	if len(s.Http) > 0 {
 		add("waffleHttp", "gitlab.com/gorib/waffle/tools/http")
+	}
+	if len(s.Http) > 1 {
+		add("httpServer", "gitlab.com/gorib/http/server")
 	}
 	seen := map[string]bool{}
 	for _, c := range s.Clients {

@@ -286,13 +286,17 @@ return ctx, err
 {{if or .Grpc .Http}}
 type Clients struct {
 {{range .Clients}}{{.Field}} {{.Alias}}.{{.Service}}Client
-{{end}}{{if .Http}}
+{{end}}{{if .HttpCommands}}{{range .HttpCommands}}
+{{.Name}} *waffleHttp.InProcess{{end}}{{else if .Http}}
 *waffleHttp.InProcess{{end}}{{if .Grpc}}
 grpc *waffleGrpc.InProcess{{end}}
 }
 
 func (c *Clients) Close() {
-{{if .Http}}if c.InProcess != nil {
+{{if .HttpCommands}}{{range .HttpCommands}}if c.{{.Name}} != nil {
+c.{{.Name}}.Close()
+}
+{{end}}{{else if .Http}}if c.InProcess != nil {
 c.InProcess.Close()
 }
 {{end}}{{if .Grpc}}if c.grpc != nil {
@@ -317,7 +321,13 @@ return nil, err
 clients.grpc = grpc
 {{if .Clients}}conn := trace.Inbound(grpc.Conn())
 {{end}}{{range .Clients}}clients.{{.Field}} = {{.Alias}}.New{{.Service}}Client(conn)
-{{end}}{{end}}{{if .Http}}
+{{end}}{{end}}{{if .HttpCommands}}{{if not .Grpc}}
+var err error{{end}}
+// Each command is a process of its own in production, building one mux.
+{{range .HttpCommands}}if clients.{{.Name}}, err = waffleHttp.Serve(httpServer.New(), a.{{.Global}}(), a.{{.Routers}}(), trace.HTTP); err != nil {
+return nil, err
+}
+{{end}}{{else if .Http}}
 web, err := waffleHttp.Serve(a.{{.HttpMux}}(), a.{{.HttpGlobal}}(), a.{{.HttpRouters}}(), trace.HTTP)
 if err != nil {
 return nil, err

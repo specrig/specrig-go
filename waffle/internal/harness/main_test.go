@@ -493,6 +493,72 @@ func InitAppWith(replacements Replacements) (*Application, error) {
 }
 `
 
+const twoHttpCommandsContainer = `package diogen
+
+import (
+	pry "gitlab.com/gorib/pry"
+	httpCommand "gitlab.com/gorib/waffle/tools/http"
+	server "gitlab.com/gorib/http/server"
+)
+
+type Replacements struct {
+	PryLogger pry.Logger
+}
+
+type Application struct {
+	pryLogger                              pry.Logger
+	httpServerMux                          server.Mux
+	httpCommandGlobal                      httpCommand.Global
+	httpServerRouterAsDiCustomerRoutersTag []server.Router
+	httpServerRouterAsDiAdminRoutersTag    []server.Router
+}
+
+func InitAppWith(replacements Replacements) (*Application, error) {
+	{
+		s := httpCommand.NewHttpCommand(container.httpServerMux, container.httpCommandGlobal, container.httpServerRouterAsDiCustomerRoutersTag, container.pryLogger)
+		container.httpCustomerCommand = s
+		container.httpCustomerCommandAsAppCommand = s
+	}
+	{
+		s := httpCommand.NewHttpCommand(container.httpServerMux, container.httpCommandGlobal, container.httpServerRouterAsDiAdminRoutersTag, container.pryLogger)
+		container.httpAdminCommand = s
+	}
+	return container, nil
+}
+`
+
+const twinHttpCommandsContainer = `package diogen
+
+import (
+	pry "gitlab.com/gorib/pry"
+	httpCommand "gitlab.com/gorib/waffle/tools/http"
+	server "gitlab.com/gorib/http/server"
+)
+
+type Replacements struct {
+	PryLogger pry.Logger
+}
+
+type Application struct {
+	pryLogger                   pry.Logger
+	httpServerMux               server.Mux
+	httpCommandGlobal           httpCommand.Global
+	httpServerRouterAsRouterTag []server.Router
+}
+
+func InitAppWith(replacements Replacements) (*Application, error) {
+	{
+		s := httpCommand.NewHttpCommand(container.httpServerMux, container.httpCommandGlobal, container.httpServerRouterAsRouterTag, container.pryLogger)
+		container.httpHttpCommand = s
+	}
+	{
+		s := httpCommand.NewHttpCommand(container.httpServerMux, container.httpCommandGlobal, container.httpServerRouterAsRouterTag, container.pryLogger)
+		container.httpHttpCommand = s
+	}
+	return container, nil
+}
+`
+
 const recorderContainer = `package diogen
 
 import (
@@ -1454,6 +1520,72 @@ func serveCall(t *testing.T, name, pkg string) (call *ast.CallExpr, bound int) {
 		t.Fatalf("%s has no %s.Serve call", name, pkg)
 	}
 	return call, bound
+}
+
+func TestEachHttpCommandIsServedOnAMuxOfItsOwn(t *testing.T) {
+	module(t, twoHttpCommandsContainer, nil)
+
+	run(t)
+
+	body := generatedFile(t)
+	contains(t, "harness_gen.go", body,
+		"Customer *waffleHttp.InProcess",
+		"Admin    *waffleHttp.InProcess",
+		"waffleHttp.Serve(httpServer.New(), a.HttpCommandGlobal(), a.HttpServerRouterAsDiCustomerRoutersTag(), trace.HTTP)",
+		"waffleHttp.Serve(httpServer.New(), a.HttpCommandGlobal(), a.HttpServerRouterAsDiAdminRoutersTag(), trace.HTTP)",
+		"c.Customer.Close()",
+		"c.Admin.Close()",
+	)
+	lacks(t, "harness_gen.go", body, "a.HttpServerMux()", "clients.InProcess")
+}
+
+func TestEveryServeCallOfSeveralCommandsFitsTheHelper(t *testing.T) {
+	module(t, twoHttpCommandsContainer, nil)
+
+	run(t)
+
+	file, err := parser.ParseFile(token.NewFileSet(), filepath.FromSlash("tests/internal/harness/harness_gen.go"), nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("harness_gen.go does not parse: %v", err)
+	}
+	signature := reflect.TypeOf(waffleHttp.Serve)
+	calls := 0
+	ast.Inspect(file, func(n ast.Node) bool {
+		assign, ok := n.(*ast.AssignStmt)
+		if !ok || len(assign.Rhs) != 1 {
+			return true
+		}
+		call, ok := assign.Rhs[0].(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if selector, ok := call.Fun.(*ast.SelectorExpr); !ok || selector.Sel.Name != "Serve" {
+			return true
+		}
+		calls++
+		if len(call.Args) != signature.NumIn() || len(assign.Lhs) != signature.NumOut() {
+			t.Errorf("a Serve call passes %d arguments and binds %d results, and Serve takes %d and returns %d",
+				len(call.Args), len(assign.Lhs), signature.NumIn(), signature.NumOut())
+		}
+		return true
+	})
+	if calls != 2 {
+		t.Errorf("Serve is called %d times for two commands", calls)
+	}
+}
+
+// Serving one and dropping the other would be silent: the suite loses half the routes.
+func TestHttpCommandsTheirFieldsDoNotTellApartAreRefused(t *testing.T) {
+	module(t, twinHttpCommandsContainer, nil)
+
+	err := New().Run(t.Context())
+
+	if err == nil {
+		t.Fatal("two commands stored in one field were accepted")
+	}
+	if !strings.Contains(err.Error(), "NewHttpCommand is built 2 times") {
+		t.Errorf("the error does not say how many commands it found: %v", err)
+	}
 }
 
 // The alternative is silent: no router recognised reads as a service serving
