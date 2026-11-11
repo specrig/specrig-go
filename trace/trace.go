@@ -113,6 +113,6 @@ func Raw(body []byte) json.RawMessage {
 	if json.Valid(body) {
 		return body
 	}
-	quoted, _ := json.Marshal(body)
+	quoted, _ := json.Marshal(string(body))
 	return quoted
 }

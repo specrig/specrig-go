@@ -8,7 +8,9 @@ serves:
 calls:
   - /stock.Stock/Release
   - /stock.Stock/Reserve
+  - DELETE /invoices/{}
   - GET /invoices/{}
 clients:
   Shop.Invoices:
+    - DELETE /invoices/{}
     - GET /invoices/{}

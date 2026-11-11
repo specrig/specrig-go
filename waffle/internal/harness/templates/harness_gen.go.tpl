@@ -143,7 +143,21 @@ RefuseAfter(ctx context.Context, table string, rows int, writes ...sqltest.Write
 RefuseCommit(ctx context.Context, table string, writes ...sqltest.Write) error
 Heal(ctx context.Context) error
 }
-{{end}}
+{{end}}{{if .Neighbours}}
+// A struct of its own, not fields of App: diogen gives Application a getter
+// for every container field, and the stand-in is named after one.
+type Neighbours struct {
+{{range .Neighbours}}{{.Name}} *standin.Backend
+{{end}}}
+
+// What the neighbours hook sets: a neighbour's contract.
+type NeighbourOptions struct {
+{{range .Neighbours}}{{.Name}} standin.Options
+{{end}}}
+{{if .Godog}}
+// The scenario's own, checked when it ends.
+var standing []*standin.Backend
+{{end}}{{end}}
 type App struct {
 *{{.Package}}.Application
 {{if .HookExtra}}extra
@@ -153,7 +167,8 @@ Redis resource.Fault{{end}}{{if .Logger}}
 Logger *pry.LogRecorder{{end}}{{if .Hilton}}
 Telemetry *hilton.Recording{{end}}{{if .Consumer}}
 Consumer *scribus.ConsumerRecorder{{end}}{{if .Publisher}}
-Publisher *amqp.PublisherRecorder{{end}}
+Publisher *amqp.PublisherRecorder{{end}}{{if .Neighbours}}
+Neighbours Neighbours{{end}}
 }
 
 // Fills what the scenario left empty. A recorder is on App only where it went
@@ -205,6 +220,21 @@ cut.{{.Field}} = {{.Alias}}.New{{.Name}}(trace.Outbound(cut.{{.Field}}))
 {{end}}{{range .Dead}}if cut.{{.Field}} == nil {
 cut.{{.Field}} = grpcClient.Dead("{{.Label}}")
 }
+{{end}}{{if .Neighbours}}
+// An HTTP neighbour the scenario did not replace is answered by a stand-in under
+// its client: whatever address the client was given is never dialled.
+options := NeighbourOptions{
+{{range .Neighbours}}{{.Name}}: standin.Options{Name: "{{.Label}}"},
+{{end}}}
+{{if .HookNeighbours}}neighbours(&options)
+{{end}}{{end}}{{range .Neighbours}}if cut.{{.Field}} == nil {
+backend, err := standin.New(options.{{.Name}})
+if err != nil {
+return nil, err
+}
+cut.{{.Field}}, app.Neighbours.{{.Name}} = backend, backend
+{{if $.Godog}}standing = append(standing, backend)
+{{end}}}
 {{end}}
 application, err := {{.Package}}.InitAppWith({{.InitArgs}})
 if err != nil {
@@ -229,13 +259,25 @@ return traced
 func Steps(sc *godog.ScenarioContext) {
 sc.Before(func(ctx context.Context, s *godog.Scenario) (context.Context, error) {
 trace.Case(s.Uri)
-return ctx, nil
+{{if .Neighbours}}standing = nil
+{{end}}return ctx, nil
 })
 sc.StepContext().Before(func(ctx context.Context, st *godog.Step) (context.Context, error) {
 trace.Step(string(st.Type))
 return ctx, nil
 })
+{{if .Neighbours}}// A call no step answered, or that the contract does not allow, fails the scenario it came from.
+sc.After(func(ctx context.Context, _ *godog.Scenario, err error) (context.Context, error) {
+var failures []string
+for _, backend := range standing {
+failures = append(failures, backend.Failures()...)
 }
+if len(failures) > 0 {
+err = errors.Join(err, errors.New(strings.Join(failures, "\n")))
+}
+return ctx, err
+})
+{{end}}}
 {{end}}
 {{if or .Grpc .Http}}
 type Clients struct {

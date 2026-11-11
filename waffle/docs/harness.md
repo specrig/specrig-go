@@ -40,8 +40,9 @@ clients, err := app.Serve()
 
 - **The systems.** A `gitlab.com/gorib/sql.Db` seam means postgres and every `domain/*/cmd/migrate`, in name order; a `gitlab.com/gorib/redis.Db` seam means redis.
 - **The recorders.** A seam of `pry.Logger`, `hilton.Provider`, `scribus.Consumer` or `amqp.Publisher` — or of the service's own interface over a publisher built by `amqp.NewPublisher` — gets the recording implementation, handed back on `App`. A `di.Tags` collection of one of these types is left alone: one recorder is not a list.
-- **The trace.** Every call, event and command that crosses the service's edge is traced for [flows](flows.md#the-suites-record): the suite's calls, the typed clients a scenario replaced, the publishers, and the container's commands — single ones and `di.Tags` collections of them — behind getters `App` shadows.
+- **The trace.** Every call, event and command that crosses the service's edge is traced for [flows](flows.md#the-suites-record): the suite's calls, the typed clients a scenario replaced, the requests the HTTP stand-ins answer, the publishers, and the container's commands — single ones and `di.Tags` collections of them — behind getters `App` shadows.
 - **The dead connections.** Every `grpc.ClientConnInterface` seam becomes `grpcClient.Dead(...)`, labelled with the typed clients built on it and the variables its constructor reads: `customer.AccountServiceClient, customer.CustomersServiceClient (AUSWEIS_HOST, AUSWEIS_PORT)`. Both halves are facts of the container; nothing is inferred from how a service names its variables.
+- **The HTTP neighbours.** Every seam `gitlab.com/gorib/http/client.NewTransport` builds — declared as `http.RoundTripper` or as a port of the service's own that is one — gets a stand-in, under `app.Neighbours` by the name of what uses it: `NetHttpRoundTripperForServiceSecurityAdapter` is `app.Neighbours.ServiceSecurityAdapter`. See [An HTTP neighbour](#an-http-neighbour).
 - **The environment.** Every variable the service reads through `gitlab.com/gorib/env` is a field of `Variables`, named as the variable and typed as the read — unless `Boot` fills the seam above the constructor that reads it, so it never runs. The container's reads come from `di_gen.go`, the modules' included; a read anywhere else in `config/`, `domain/` or `cmd/` is a field too. A `Need*` or `Must*` read holds a placeholder that parses as its type: a string names its own key — `bladerunner-host.harness.invalid` — so a call that reaches it says which variable it came from; a number is `0`, a bool `false`, JSON `null`, and a list holds one such element: an empty one would reach the environment as `""`, which comes back as one element that no number parses. A read with a fallback holds that fallback, copied from the call and typed as Go types it — `uint16(8080)` makes the field a `uint16` — and a fallback that names a declaration of its own file is left out. Every read of a variable shares its one field: a single read without a fallback anywhere makes it a placeholder, and reads that disagree on its type stop the run, naming both call sites. `Env` always sets a placeholder, and a fallback only when the `env` hook changed it: the fallback is the container's own answer, and writing it back does not always round-trip — `[]string{}` comes back from the environment as `[""]`.
 - **The transports and the clients.** `NewGrpcCommand` and `NewHttpCommand` hand over the handler, interceptor and router lists the daemon itself uses. A handler registers its service in `Start` with `proto.RegisterXServer`, and protoc-gen-go-grpc puts `NewXClient` beside it, so every handler in the module's packages the container imports gets its typed client on `Clients`, one the container registers only under a condition too — where the condition is false, its calls answer `Unimplemented`: the field is `X` without `Service`, prefixed with the package when two packages register a service of one name — `NotificationTemplate`, `DocumentTemplate`. A handler whose `Start` registers nothing the generator finds is reported by name.
 
@@ -56,6 +57,7 @@ What the container cannot say goes into `harness.go` as a hook. The generated fi
 | `func env(v *Variables)` | by `Env`, over the placeholders and fallbacks | a value with a meaning — a URL with a scheme, a key pair. A misspelt key or a wrong type does not compile, and the developer's environment still wins. `v.Custom` takes a key with no field of its own |
 | `func setup() error` | by `Main`, first | what a step cannot set and the developer's environment must not override: `TZ` — Go reads it once per process, so a step that sets it comes too late |
 | `func resources() []resource.Resource` | once, appended to the set | a system the container does not name — elasticsearch, a working directory the service writes into |
+| `func neighbours(n *NeighbourOptions)` | by `Boot`, before the stand-ins are made | an HTTP neighbour's contract: `n.ServiceSecurityAdapter.Contract = "../docs/sigur.yaml"`, and `Failure`, the schema of a 5xx it may answer on any route |
 | `func (a *App) params(ctx context.Context) (cfg *di.Config, err error)` | by `Boot`, after `Up` and before `boot` | the container's parameters other than the context, in the order `InitAppWith` takes them — see below |
 | `func (a *App) boot(ctx context.Context, cut *diogen.Replacements) error` | by `Boot`, before its own fills | a recorder of the service's own. Guard it with `if cut.X == nil` like the rest |
 | `type extra struct{ … }` | embedded in `App` | the handles `boot` hands back: `app.Drivers` |
@@ -482,6 +484,44 @@ err := w.app.Consumer.Deliver(amqp.Delivery{
 ```
 
 `amqp.Delivery{...}.Source(ctx)` builds the message. It exists because the real constructor is unexported: without it every suite writes its own `Source`, and each one gets the lookup scopes slightly differently.
+
+A routing key none of the command's bindings takes is refused, naming the key and the bindings, as the broker would never deliver it: a handler bound under a misspelt key is a red case.
+
+## An HTTP neighbour
+
+A gRPC neighbour is cut at its typed client, because below it the wire is `Invoke(method string, args any)`. An HTTP neighbour is stood in for a level lower, under its client, because there the stand-in can hold the neighbour's contract: its OpenAPI document checks what the service sends and what the stand-in answers, so the cut checks the agreement rather than a copy of the wire. It is what every other specrig stack does, and it is what puts the request into `tests/flows.yaml`.
+
+It needs the transport to be a container field. The adapter takes it and builds its client on it, one transport per neighbour, grouped by `di.For` as gRPC connections are:
+
+```go
+func NewSigur(url string, transport http.RoundTripper) (*sigur, error) {
+	return client.New(url, client.WithTransport(transport))
+}
+```
+
+```go
+di.Wire[http.RoundTripper](client.NewTransport, di.For[service.SecurityAdapter]())
+```
+
+The harness knows the seam by `client.NewTransport` building it, so a service that narrows the transport to a port of its own — `type Transport interface{ http.RoundTripper }` — is read the same way. `Boot` fills every such seam the scenario left empty with a `standin.Backend` and hands it back under `app.Neighbours`, named after what uses it — a struct of its own, since `App` carries a getter for every container field and one of them has that name:
+
+| | |
+|---|---|
+| `Reply(method, path, status, body, standin.Header(name, value)...)` | what the neighbour answers; `body` is JSON unless it is `[]byte` |
+| `ReplyTo(method, path, query, status, body, ...)` | the same, for a request whose query has these values; the one naming the most of them wins |
+| `TimeOut(method, path, query...)` | the client meets a timeout at once: an error that is `context.DeadlineExceeded` |
+| `Hold`, `Release(method, path, query...)` | the request waits until a step releases it, and gets what is declared by then — for a call the step does not itself wait on |
+| `Requests(method, path)` | what reached it: method, path, query, header and body |
+
+A segment in braces, `/orders/{id}`, takes any value wherever a path is named, and the exact path wins. A call no step answered gets a 501; that, a request or an answer the contract does not allow, and a hold no step released fail the scenario when it ends — the `After` hook the generated `Steps` adds. The contract, and the schema of a 5xx the neighbour may answer on any route, are the `neighbours` hook's:
+
+```go
+func neighbours(n *NeighbourOptions) {
+	n.ServiceSecurityAdapter.Contract = "../docs/sigur.yaml"
+}
+```
+
+**The address is never dialled, but it is still read.** The adapter over a stood-in transport is built for real, so what it reads is a field of `Variables` like anything else, and a placeholder that is no URL fails the boot. Give it one in the `env` hook — `v.SIGUR_URL = "https://sigur.harness.invalid/"` — and the stand-in answers whatever host the request names. A scenario may still bring a transport of its own where `replacements.allow` grants the seam; `App` then has no stand-in for it.
 
 ## The in-process server
 

@@ -533,6 +533,60 @@ func InitAppWith(replacements Replacements) (*Application, error) {
 }
 `
 
+const neighboursContainer = `package diogen
+
+import (
+	env "gitlab.com/gorib/env"
+	client "gitlab.com/gorib/http/client"
+	security "example.test/shop/domain/warehouse/adapter/security"
+	rf "example.test/shop/domain/payment/adapter/rf"
+	service "example.test/shop/domain/warehouse/service"
+	netHttp "net/http"
+)
+
+type Replacements struct {
+	// gitlab.com/gorib/http/client.NewTransport (NetHttpRoundTripperForServiceSecurityAdapter)
+	NetHttpRoundTripperForServiceSecurityAdapter netHttp.RoundTripper
+	// example.test/shop/domain/warehouse/adapter/security.NewSigur
+	ServiceSecurityAdapter service.SecurityAdapter
+	// gitlab.com/gorib/http/client.NewTransport
+	RfTransport rf.Transport
+}
+
+type Application struct {
+	netHttpRoundTripperForServiceSecurityAdapter netHttp.RoundTripper
+	serviceSecurityAdapter                       service.SecurityAdapter
+	rfTransport                                  rf.Transport
+}
+
+func InitAppWith(replacements Replacements) (*Application, error) {
+	container.netHttpRoundTripperForServiceSecurityAdapter = replacements.NetHttpRoundTripperForServiceSecurityAdapter
+
+	if container.netHttpRoundTripperForServiceSecurityAdapter == nil {
+		s := client.NewTransport()
+		container.netHttpRoundTripperForServiceSecurityAdapter = s
+	}
+
+	container.serviceSecurityAdapter = replacements.ServiceSecurityAdapter
+
+	if container.serviceSecurityAdapter == nil {
+		s, err := security.NewSigur(env.NeedValue[string]("SIGUR_URL"), container.netHttpRoundTripperForServiceSecurityAdapter)
+		if err != nil {
+			return nil, err
+		}
+		container.serviceSecurityAdapter = s
+	}
+
+	container.rfTransport = replacements.RfTransport
+
+	if container.rfTransport == nil {
+		s := client.NewTransport()
+		container.rfTransport = s
+	}
+	return container, nil
+}
+`
+
 const outboundContainer = `package diogen
 
 import (
@@ -1119,6 +1173,59 @@ func TestAPublisherNarrowedByTheServiceIsRecordedToo(t *testing.T) {
 	contains(t, "harness_gen.go", generatedFile(t),
 		"cut.Publisher, app.Publisher = publisher, publisher",
 		"cut.Publisher = trace.Publisher(cut.Publisher)",
+	)
+}
+
+// Known by what builds it, so a transport the service narrowed to a port of
+// its own is a neighbour as much as one declared as http.RoundTripper.
+func TestAnHttpNeighbourIsStoodInForUnderItsClient(t *testing.T) {
+	module(t, neighboursContainer, map[string]string{
+		"tests/internal/harness/harness.go": "package harness\n\nfunc neighbours(n *NeighbourOptions) {}\n",
+	})
+
+	run(t)
+
+	body := generatedFile(t)
+	contains(t, "harness_gen.go", body,
+		`"github.com/specrig/specrig-go/standin"`,
+		"ServiceSecurityAdapter standin.Options",
+		"RfTransport            standin.Options",
+		"ServiceSecurityAdapter *standin.Backend",
+		"Neighbours Neighbours",
+		`ServiceSecurityAdapter: standin.Options{Name: "service.SecurityAdapter"},`,
+		"neighbours(&options)",
+		"backend, err := standin.New(options.ServiceSecurityAdapter)",
+		"cut.NetHttpRoundTripperForServiceSecurityAdapter, app.Neighbours.ServiceSecurityAdapter = backend, backend",
+		"cut.RfTransport, app.Neighbours.RfTransport = backend, backend",
+	)
+	lacks(t, "harness_gen.go", body, "standing")
+}
+
+// The adapter over a stood-in transport is built for real, so what it reads is
+// a field; the transport itself reads nothing.
+func TestANeighboursAdapterStillReadsItsAddress(t *testing.T) {
+	module(t, neighboursContainer, nil)
+
+	run(t)
+
+	body := generatedFile(t)
+	contains(t, "harness_gen.go", body, "SIGUR_URL string")
+	lacks(t, "harness_gen.go", body, "neighbours(&options)")
+}
+
+func TestAGodogSuiteFailsAScenarioOnWhatItsStandInsFound(t *testing.T) {
+	module(t, neighboursContainer, map[string]string{
+		"go.mod": "module example.test/shop\n\ngo 1.27\n\nrequire github.com/cucumber/godog v0.15.0\n",
+	})
+
+	run(t)
+
+	contains(t, "harness_gen.go", generatedFile(t),
+		"var standing []*standin.Backend",
+		"standing = append(standing, backend)",
+		"standing = nil",
+		"sc.After(func(ctx context.Context, _ *godog.Scenario, err error) (context.Context, error) {",
+		"failures = append(failures, backend.Failures()...)",
 	)
 }
 

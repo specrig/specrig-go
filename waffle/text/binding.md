@@ -63,6 +63,14 @@ must not get out before it. `app.Postgres.Heal(ctx)` is the database coming back
 it ends the fault and every refusal and keeps the rows. Do not create triggers by
 hand: `Heal` and `Reset` lift only these.
 
+A neighbour over HTTP is not a replacement either, where its transport comes from
+the container: the harness stands in for it under the client, and a step says what
+it answers — `app.Neighbours.<Name>.Reply(method, path, status, body)`, `ReplyTo` for a
+query, `TimeOut`, `Hold` and `Release` — and reads what reached it with
+`Requests(method, path)`. A segment in braces, `/orders/{id}`, takes any value, and
+the exact path wins. A call no step answered, or one the neighbour's contract does
+not allow, fails the scenario.
+
 `docs/harness.md` in specrig-go's waffle adapter has the catalogue — which
 recorder exists for which seam — and the reasoning behind a particular grant.
 Read it to understand what you were given; it is not a licence to change it.

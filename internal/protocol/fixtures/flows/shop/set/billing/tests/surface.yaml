@@ -6,6 +6,8 @@ consumes:
   - orders.placed
   - payments.settled
 serves:
+  - DELETE /invoices/{orderId}
+  - GET /invoices/overdue
   - GET /invoices/{orderId}
 clients:
   Billing.Acquirer:

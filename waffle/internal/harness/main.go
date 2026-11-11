@@ -162,8 +162,11 @@ func plan(project *command.Project, own hooks) (map[string]any, found, error) {
 		"Consumer":     s.Consumer,
 		"Publisher":    s.Publisher,
 		"Dead":         records(s.Dead, func(c conn) map[string]string { return map[string]string{"Field": c.Field, "Label": c.Label} }),
-		"Variables":    records(s.Variables, variableRecord),
-		"Fallbacks":    slices.ContainsFunc(s.Variables, func(v variable) bool { return !v.Always }),
+		"Neighbours": records(s.Neighbours, func(n neighbour) map[string]string {
+			return map[string]string{"Field": n.Field, "Name": n.Name, "Label": n.Label}
+		}),
+		"Variables": records(s.Variables, variableRecord),
+		"Fallbacks": slices.ContainsFunc(s.Variables, func(v variable) bool { return !v.Always }),
 		"Clients": records(s.Clients, func(c client) map[string]string {
 			return map[string]string{"Field": c.Field, "Alias": c.Alias, "Service": c.Service}
 		}),
@@ -186,6 +189,7 @@ func plan(project *command.Project, own hooks) (map[string]any, found, error) {
 		"HookResources":    own.Resources,
 		"HookBoot":         own.Boot,
 		"HookExtra":        own.Extra,
+		"HookNeighbours":   own.Neighbours,
 	}
 	return p, found{shape: s, missed: missed}, nil
 }
@@ -283,6 +287,12 @@ func imports(s shape, own hooks, migrations []map[string]string, container, pkg 
 	if len(s.Dead) > 0 {
 		add("grpcClient", "gitlab.com/gorib/grpc/client")
 	}
+	if len(s.Neighbours) > 0 {
+		add("", "github.com/specrig/specrig-go/standin")
+		if godog {
+			std = append(std, "errors", "strings")
+		}
+	}
 	if s.Grpc.Present() {
 		add("waffleGrpc", "gitlab.com/gorib/waffle/tools/grpc")
 	}
@@ -304,6 +314,7 @@ func imports(s shape, own hooks, migrations []map[string]string, container, pkg 
 	}
 
 	slices.Sort(std)
+	std = slices.Compact(std)
 	slices.SortFunc(rest, func(a, b map[string]string) int { return strings.Compare(a["Path"], b["Path"]) })
 	out := make([]map[string]string, 0, len(std)+len(rest)+1)
 	for _, p := range std {
@@ -323,7 +334,7 @@ func importName(alias, p string) string {
 // What a parameter's local in Boot must not shadow.
 func bootLocals(imported []map[string]string) map[string]bool {
 	out := map[string]bool{"ctx": true, "cut": true, "app": true, "err": true, "application": true,
-		"logger": true, "telemetry": true, "consumer": true, "publisher": true}
+		"logger": true, "telemetry": true, "consumer": true, "publisher": true, "neighbours": true, "options": true, "backend": true}
 	for _, imp := range imported {
 		if imp["Path"] != "" {
 			out[importName(imp["Alias"], imp["Path"])] = true

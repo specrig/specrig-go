@@ -43,13 +43,17 @@ func TestUntestedIsWhatTheCodeLinksAndNoCaseFollows(t *testing.T) {
 	p := traced("dungeon", "herald", "warehouse")
 	p.surfaces = []surface.Surface{
 		{Service: "apostle", Calls: []string{"/contract.Contracts/Get"}},
-		{Service: "dungeon", Publishes: []string{"invoices.paid"}, Serves: []string{"/contract.Contracts/Get"}, Calls: []string{"/warehouse.Units/Get"}},
+		{Service: "dungeon", Publishes: []string{"invoices.paid"}, Serves: []string{"/contract.Contracts/Get"}, Calls: []string{"/warehouse.Units/Get", "GET /units/{}", "POST /units"}},
 		{Service: "herald", Consumes: []string{"invoices.paid"}, Calls: []string{"/contract.Contracts/Get", "POST /api/render/text"}},
-		{Service: "warehouse", Serves: []string{"/warehouse.Units/Get"}},
+		{Service: "warehouse", Serves: []string{"/warehouse.Units/Get", "GET /units/{id}", "POST /units"}},
 	}
-	followed := []Link{{From: "dungeon", To: "herald", Message: "event invoices.paid"}}
+	followed := []Link{
+		{From: "dungeon", To: "herald", Message: "event invoices.paid"},
+		{From: "dungeon", To: "warehouse", Message: "http GET /units/{id}"},
+	}
 	want := []string{
 		"dungeon → warehouse: grpc /warehouse.Units/Get",
+		"dungeon → warehouse: http POST /units",
 		"herald → dungeon: grpc /contract.Contracts/Get",
 	}
 	if got := p.untested(followed); !reflect.DeepEqual(got, want) {

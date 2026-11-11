@@ -104,5 +104,5 @@ reads the records of every service below `root`, whatever its stack, as one syst
 ## What is not there
 
 - **A party outside waffle.** A service with no records is not in the set: an RPC only it calls is "served, nobody calls", and an HTTP request to it leaves the system — both true of the records, which is all the check reads. A link is never declared by hand, in config or in code — a declared link is one more thing to forget — except a client's host the set cannot tell, above, which the check fails without.
-- **Outgoing HTTP in a trace.** The trace sees the service's own server and the calls a scenario replaced; a request to another system goes through a client the harness does not wrap, so the pages show it only where the code's record names it.
+- **Outgoing HTTP through a transport of the adapter's own.** A request is traced where the harness stands in for its neighbour, which takes the transport from the container ([An HTTP neighbour](harness.md#an-http-neighbour)); a client that builds its own transport is seen only where the code's record names its requests.
 - **Paths no case takes.** A branch in the code that no case reaches is in neither record. Coverage of the suite over the production packages is the tool for that.

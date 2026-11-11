@@ -39,6 +39,7 @@ links:
     to: billing
     message: http GET /invoices/{orderId}
 untested:
+  - 'shop → billing: http DELETE /invoices/{orderId}'
   - 'shop → stock: grpc /stock.Stock/Release'
 outside:
   - 'billing sends http POST /payments: out of the system'

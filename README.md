@@ -14,6 +14,7 @@ on waffle.
 | [flows](flows) | `flows/1`: a suite's record written from its trace, and `index/1`: a project's flows assembled from its services' records |
 | [cmd/specrig-flows](cmd/specrig-flows) | the command that assembles them, for a project on any stack |
 | [resource](resource) | the seam between a component test and the external systems it runs against for real |
+| [standin](standin) | the stand-in for a service's HTTP neighbour: it answers what the steps declared, holds or times out a call on request, checks the traffic against the neighbour's OpenAPI document and keeps what was sent |
 | [waffle](waffle) | the adapter for a service built on waffle, the Go framework, in a module of its own: the layout, the default areas and the text of `specrig.md`, the component harness generated from the container, what a test may replace, the surface read off the code, and the trace over gorib's transports |
 
 A framework's adapter hands `cli.Main` its `Preset`: the layout, the default areas,

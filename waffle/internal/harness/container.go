@@ -21,6 +21,10 @@ var (
 	hiltonTracer = waffle.TypeRef{Path: "gitlab.com/gorib/hilton", Name: "Provider"}
 	consumer     = waffle.TypeRef{Path: "gitlab.com/gorib/waffle/tools/scribus", Name: "Consumer"}
 	publisher    = waffle.TypeRef{Path: "gitlab.com/gorib/amqp", Name: "Publisher"}
+
+	// By what builds it, not by its type: a service may narrow the transport to
+	// a port of its own, interface{ http.RoundTripper }.
+	neighbourTransport = "gitlab.com/gorib/http/client.NewTransport"
 )
 
 // Every list holds Replacements fields: a type the container carries twice is
@@ -33,6 +37,7 @@ type shape struct {
 	Consumer     []string
 	Publisher    []string
 	Dead         []conn
+	Neighbours   []neighbour
 	Grpc         wiring
 	Http         wiring
 	Variables    []variable
@@ -62,6 +67,13 @@ func (w wiring) Present() bool { return w.Handlers != "" || w.Mux != "" }
 
 type conn struct {
 	Field string
+	Label string
+}
+
+// An HTTP neighbour's transport: Name is what a step calls it on App.
+type neighbour struct {
+	Field string
+	Name  string
 	Label string
 }
 
@@ -100,6 +112,10 @@ func read(container waffle.Container, importPath string, seams []waffle.Seam) (s
 			if built[seam.Field] == publisher.Path+".NewPublisher" {
 				out.Publisher = append(out.Publisher, seam.Field)
 			}
+			// diogen adds " (Field)" when di.For groups the consumers of one transport.
+			if constructor, _, _ := strings.Cut(built[seam.Field], " "); constructor == neighbourTransport {
+				out.Neighbours = append(out.Neighbours, neighbour{Field: seam.Field, Name: neighbourName(seam.Field, ref, out.Imports)})
+			}
 		}
 	}
 	out.Outbound = grpcClients(file, types)
@@ -116,6 +132,10 @@ func read(container waffle.Container, importPath string, seams []waffle.Seam) (s
 		out.Dead[i].Label = graph.label(out.Dead[i].Field, types)
 	}
 	slices.SortFunc(out.Dead, func(a, b conn) int { return strings.Compare(a.Field, b.Field) })
+	for i := range out.Neighbours {
+		out.Neighbours[i].Label = graph.label(out.Neighbours[i].Field, types)
+	}
+	slices.SortFunc(out.Neighbours, func(a, b neighbour) int { return strings.Compare(a.Field, b.Field) })
 	if out.Variables, err = graph.variables(out.filled(), moduleReads(".")); err != nil {
 		return shape{}, err
 	}
@@ -148,7 +168,24 @@ func (s shape) filled() map[string]bool {
 	for _, dead := range s.Dead {
 		out[dead.Field] = true
 	}
+	for _, n := range s.Neighbours {
+		out[n.Field] = true
+	}
 	return out
+}
+
+// diogen names a transport grouped by di.For "<Alias><Type>For<Consumer>": the
+// consumer is what a step knows the neighbour by.
+func neighbourName(field string, ref waffle.TypeRef, imports map[string]string) string {
+	for alias, p := range imports {
+		if p != ref.Path {
+			continue
+		}
+		if name, ok := strings.CutPrefix(field, exported(alias)+ref.Name+"For"); ok && name != "" {
+			return name
+		}
+	}
+	return field
 }
 
 // A typed client of another service.

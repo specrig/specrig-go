@@ -210,13 +210,26 @@ func (p project) untested(traced []Link) []string {
 			}
 		}
 		for _, m := range s.Calls {
-			if !strings.HasPrefix(m, "/") {
-				continue // outgoing HTTP is not traced, so no case could follow it
+			if strings.HasPrefix(m, "/") {
+				exact, _ := surface.Receivers(p.surfaces, s.Service, "grpc", m)
+				for _, to := range exact {
+					if to != s.Service {
+						add(s.Service, to, "grpc "+m)
+					}
+				}
+				continue
 			}
-			exact, _ := surface.Receivers(p.surfaces, s.Service, "grpc", m)
+			exact, _ := surface.Receivers(p.surfaces, s.Service, "http", m)
 			for _, to := range exact {
-				if to != s.Service {
-					add(s.Service, to, "grpc "+m)
+				if to == s.Service {
+					continue
+				}
+				at := slices.IndexFunc(p.surfaces, func(o surface.Surface) bool { return o.Service == to })
+				routes := surface.Routes(p.surfaces[at], m)
+				if !slices.ContainsFunc(routes, func(r string) bool { return had[s.Service+" → "+to+": http "+r] }) {
+					for _, r := range routes {
+						add(s.Service, to, "http "+r)
+					}
 				}
 			}
 		}

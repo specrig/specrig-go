@@ -233,18 +233,26 @@ func hosts(set []Surface, requests []string) []string {
 }
 
 func routing(set []Surface, request string) []string {
-	if !known(request) {
-		return nil
-	}
 	var out []string
 	for _, s := range set {
-		if slices.ContainsFunc(s.Serves, func(route string) bool {
-			return isHTTP(route) && names(route) && routeMatches(route, request)
-		}) {
+		if len(Routes(s, request)) > 0 {
 			out = append(out, s.Service)
 		}
 	}
 	slices.Sort(out)
+	return out
+}
+
+func Routes(s Surface, request string) []string {
+	if !known(request) {
+		return nil
+	}
+	var out []string
+	for _, route := range s.Serves {
+		if isHTTP(route) && names(route) && routeMatches(route, request) {
+			out = append(out, route)
+		}
+	}
 	return out
 }
 
@@ -265,10 +273,8 @@ func Receivers(set []Surface, from, kind, name string) (exact, wild []string) {
 				exact = append(exact, s.Service)
 			}
 		case "http":
-			for _, route := range s.Serves {
-				if isHTTP(route) && known(name) && names(route) && routeMatches(route, name) && landsOn(set, from, name, s.Service) {
-					exact = append(exact, s.Service)
-				}
+			if len(Routes(s, name)) > 0 && landsOn(set, from, name, s.Service) {
+				exact = append(exact, s.Service)
 			}
 		}
 	}

@@ -15,12 +15,13 @@ import (
 // Found by name alone: the compiler checks the signature against the call the
 // generated file makes.
 type hooks struct {
-	Env       bool // func env(v *Variables)
-	Setup     bool // func setup() error
-	Resources bool // func resources() []resource.Resource
-	Boot      bool // func (a *App) boot(ctx context.Context, cut *<container>.Replacements) error
-	Params    bool // func (a *App) params(ctx context.Context) (<InitAppWith's parameters>, err error)
-	Extra     bool // type extra struct{...}, embedded in App
+	Env        bool // func env(v *Variables)
+	Setup      bool // func setup() error
+	Resources  bool // func resources() []resource.Resource
+	Boot       bool // func (a *App) boot(ctx context.Context, cut *<container>.Replacements) error
+	Params     bool // func (a *App) params(ctx context.Context) (<InitAppWith's parameters>, err error)
+	Extra      bool // type extra struct{...}, embedded in App
+	Neighbours bool // func neighbours(n *NeighbourOptions)
 }
 
 // Every top-level name the package's own files declare, methods as "Type.Name".
@@ -53,6 +54,7 @@ func readPackage(dir string) (hooks, declared, error) {
 	_, h.Boot = names["App.boot"]
 	_, h.Params = names["App.params"]
 	_, h.Extra = names["extra"]
+	_, h.Neighbours = names["neighbours"]
 	return h, names, nil
 }
 
@@ -106,6 +108,6 @@ func collisions(rendered []byte, own declared) error {
 		lines = append(lines, fmt.Sprintf("%s: %s", file, strings.Join(byFile[file], ", ")))
 	}
 	return fmt.Errorf("%s declares these now, so the package's own files may not:\n  %s\n"+
-		"move what the container cannot say into hooks (env, setup, resources, App.params, App.boot, extra) and delete the rest — "+
+		"move what the container cannot say into hooks (env, setup, resources, neighbours, App.params, App.boot, extra) and delete the rest — "+
 		"see github.com/specrig/specrig-go/waffle/docs/harness.md", generated, strings.Join(lines, "\n  "))
 }
