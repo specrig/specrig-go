@@ -6,20 +6,24 @@ package harness
 import (
 {{range .Imports}}{{if .Path}}{{.Alias}} "{{.Path}}"{{end}}
 {{end}})
-{{if .Postgres}}
-func database(opts ...sqltest.Option) *sqltest.Postgres {
-return sqltest.New(append([]sqltest.Option{
-sqltest.Env("{{.EnvPrefix}}_TEST_DSN"),
-sqltest.Docker("postgres:18-alpine"),
-sqltest.Database("{{.Service}}_test"),
+{{with .Dialect}}{{if .Image}}
+func database(opts ...sqltest.Option) *sqltest.{{.Type}} {
+return sqltest.{{.Constructor}}(append([]sqltest.Option{
+sqltest.Env("{{$.EnvPrefix}}_TEST_DSN"),
+sqltest.Docker("{{.Image}}"),
+sqltest.Database("{{$.Service}}_test"),
 sqltest.Ephemeral(),
 }, opts...)...)
 }
 
-var postgres = database(sqltest.Migrations(waffleMigrate.Up(
-{{range .Migrations}}{{.Alias}}.NewMigrations(),
+var {{.Name}} = database(sqltest.Migrations(waffleMigrate.Up(
+{{range $.Migrations}}{{.Alias}}.NewMigrations(),
 {{end}})))
-{{end}}{{if .Redis}}
+{{else}}
+var {{.Name}} = sqltest.{{.Constructor}}(waffleMigrate.Up(
+{{range $.Migrations}}{{.Alias}}.NewMigrations(),
+{{end}}))
+{{end}}{{end}}{{if .Redis}}
 var cache = redistest.New(
 redistest.Env("{{.EnvPrefix}}_TEST_REDIS"),
 redistest.Docker("redis:8-alpine"),
@@ -112,18 +116,18 @@ _, _ = fmt.Fprintln(os.Stderr, err)
 }
 os.Exit(code)
 }
-{{if .Postgres}}
+{{with .Dialect}}
 // Each domain alone on an empty database, and a version two domains ship is the
 // same file: then the order the sources run in cannot matter.
 func CheckMigrations(ctx context.Context) error {
 sources := map[string]fs.FS{
-{{range .Migrations}}"{{.Name}}": {{.Alias}}.NewMigrations(),
+{{range $.Migrations}}"{{.Name}}": {{.Alias}}.NewMigrations(),
 {{end}}}
 if err := waffleMigrate.CheckShared(sources); err != nil {
 return err
 }
-for _, name := range []string{ {{range .Migrations}}"{{.Name}}", {{end}} } {
-alone := resource.New(database(sqltest.Suffix(name), sqltest.Migrations(waffleMigrate.Up(sources[name]))))
+for _, name := range []string{ {{range $.Migrations}}"{{.Name}}", {{end}} } {
+alone := resource.New({{if .Image}}database(sqltest.Suffix(name), sqltest.Migrations(waffleMigrate.Up(sources[name]))){{else}}sqltest.{{.Constructor}}(waffleMigrate.Up(sources[name])){{end}})
 err := alone.Up(ctx)
 if down := alone.Down(ctx); err == nil {
 err = down
@@ -136,12 +140,12 @@ return nil
 }
 
 // All a step gets of the database: Provision and Reset belong to the suite.
-type Postgres interface {
+type {{.Type}} interface {
 resource.Fault
 Refuse(ctx context.Context, table string, writes ...sqltest.Write) error
 RefuseAfter(ctx context.Context, table string, rows int, writes ...sqltest.Write) error
-RefuseCommit(ctx context.Context, table string, writes ...sqltest.Write) error
-Heal(ctx context.Context) error
+{{if .RefuseCommit}}RefuseCommit(ctx context.Context, table string, writes ...sqltest.Write) error
+{{end}}Heal(ctx context.Context) error
 }
 {{end}}{{if .Neighbours}}
 // A struct of its own, not fields of App: diogen gives Application a getter
@@ -162,8 +166,8 @@ var standing Neighbours
 type App struct {
 *{{.Package}}.Application
 {{if .HookExtra}}extra
-{{end}}{{if .Postgres}}
-Postgres Postgres{{end}}{{if .Redis}}
+{{end}}{{with .Dialect}}
+{{.Type}} {{.Type}}{{end}}{{if .Redis}}
 Redis resource.Fault{{end}}{{if .Logger}}
 Logger *pry.LogRecorder{{end}}{{if .Hilton}}
 Telemetry *hilton.Recording{{end}}{{if .Consumer}}
@@ -189,8 +193,8 @@ return nil, err
 {{end}}{{if .HookBoot}}if err := app.boot(ctx, &cut); err != nil {
 return nil, err
 }
-{{end}}{{range .Postgres}}if cut.{{.}} == nil {
-cut.{{.}}, app.Postgres = postgres.Db(), postgres
+{{end}}{{range .Database}}if cut.{{.}} == nil {
+cut.{{.}}, app.{{$.Dialect.Type}} = {{$.Dialect.Name}}.Db(), {{$.Dialect.Name}}
 }
 {{end}}{{range .Redis}}if cut.{{.}} == nil {
 cut.{{.}}, app.Redis = cache.Db(), cache

@@ -1473,6 +1473,102 @@ func TestAGatewayGetsAnEmptyResourceSetAndAnHttpServer(t *testing.T) {
 	}
 }
 
+func withDriver(container, driver string) string {
+	return strings.Replace(container, `sql.NewDb(env.NeedValue[string]("DB_DRIVER"), `, `sql.NewDb(`+strconv.Quote(driver)+`, `, 1)
+}
+
+func TestTheDriverTheMarkupNamesPicksTheDatabase(t *testing.T) {
+	for driver, want := range map[string]string{"pgx": "resource.New(postgres", "mysql": "resource.New(mysql", "sqlite3": "resource.New(sqlite"} {
+		t.Run(driver, func(t *testing.T) {
+			module(t, withDriver(grpcContainer, driver), nil)
+
+			run(t)
+
+			contains(t, "harness_gen.go", generatedFile(t), want)
+		})
+	}
+}
+
+func TestASqliteServiceGetsAFileOfItsOwnAndNoCommitRefusal(t *testing.T) {
+	module(t, withDriver(grpcContainer, "sqlite"), map[string]string{
+		"domain/order/cmd/migrate/main.go": "package migrate\n",
+	})
+
+	run(t)
+
+	body := generatedFile(t)
+	contains(t, "harness_gen.go", body,
+		"var sqlite = sqltest.NewSqlite(waffleMigrate.Up(\n\torderMigrate.NewMigrations(),",
+		"if cut.SqlDb == nil {\n\t\tcut.SqlDb, app.Sqlite = sqlite.Db(), sqlite",
+		"\tSqlite Sqlite\n",
+		"Refuse(ctx context.Context, table string, writes ...sqltest.Write) error",
+		"RefuseAfter(ctx context.Context, table string, rows int, writes ...sqltest.Write) error",
+		"Heal(ctx context.Context) error",
+		"resource.New(sqltest.NewSqlite(waffleMigrate.Up(sources[name])))",
+	)
+	lacks(t, "harness_gen.go", body, "postgres", "Postgres", "sqltest.Docker", "RefuseCommit")
+	contains(t, "migrations_test.go", written(t, "tests/migrations_test.go"), "harness.CheckMigrations(")
+}
+
+func TestAMysqlServiceGetsAServerOfItsOwnAndNoCommitRefusal(t *testing.T) {
+	module(t, withDriver(grpcContainer, "mysql"), map[string]string{
+		"domain/order/cmd/migrate/main.go": "package migrate\n",
+	})
+
+	run(t)
+
+	body := generatedFile(t)
+	contains(t, "harness_gen.go", body,
+		"func database(opts ...sqltest.Option) *sqltest.Mysql {\n\treturn sqltest.NewMysql(",
+		`sqltest.Env("SHOP_TEST_DSN")`,
+		`sqltest.Docker("mysql:8.4")`,
+		`sqltest.Database("shop_test")`,
+		"var mysql = database(sqltest.Migrations(waffleMigrate.Up(\n\torderMigrate.NewMigrations(),",
+		"if cut.SqlDb == nil {\n\t\tcut.SqlDb, app.Mysql = mysql.Db(), mysql",
+		"\tMysql  Mysql\n",
+		"database(sqltest.Suffix(name), sqltest.Migrations(waffleMigrate.Up(sources[name])))",
+	)
+	lacks(t, "harness_gen.go", body, "Postgres", "RefuseCommit")
+}
+
+// An unknown driver would otherwise get postgres, and the service's SQL would
+// fail there in every scenario instead of once here.
+func TestADriverSqltestHasNoDatabaseForIsRefused(t *testing.T) {
+	module(t, withDriver(grpcContainer, "oracle"), nil)
+
+	err := New().Run(t.Context())
+
+	if err == nil {
+		t.Fatal("an oracle container was given a harness")
+	}
+	if !strings.Contains(err.Error(), `"oracle"`) {
+		t.Errorf("the error does not name the driver: %v", err)
+	}
+}
+
+func TestDatabasesOfTwoDialectsAreRefused(t *testing.T) {
+	archive := strings.NewReplacer(
+		"\tPryLogger ", "\tArchiveDb sql.Db\n\tPryLogger ",
+		"\tcontainer.sqlDb = replacements.SqlDb\n", "\tcontainer.sqlDb = replacements.SqlDb\n"+
+			"\tcontainer.archiveDb = replacements.ArchiveDb\n"+
+			"\tif container.archiveDb == nil {\n"+
+			"\t\ts, _ := sql.NewDb(env.NeedValue[string](\"DB_DRIVER\"), env.NeedValue[string](\"ARCHIVE_DSN\"))\n"+
+			"\t\tcontainer.archiveDb = s\n\t}\n",
+	)
+	module(t, archive.Replace(withDriver(grpcContainer, "sqlite")), nil)
+
+	err := New().Run(t.Context())
+
+	if err == nil {
+		t.Fatal("a postgres and a sqlite database were filled with one")
+	}
+	for _, dialect := range []string{"postgres", "sqlite"} {
+		if !strings.Contains(err.Error(), "for "+dialect) {
+			t.Errorf("the error does not name %s: %v", dialect, err)
+		}
+	}
+}
+
 // Nothing here compiles what it generates, so the call is read against the real
 // signature instead.
 func TestTheServeCallFitsTheHelper(t *testing.T) {

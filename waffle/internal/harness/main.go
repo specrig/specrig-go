@@ -112,7 +112,7 @@ func scaffold(params map[string]any, found found) map[string]string {
 		tpl("boot_test.go.tpl"):         filepath.Join("tests", "boot_test.go"),
 		tpl("replacements_test.go.tpl"): filepath.Join(container, "replacements_test.go"),
 	}
-	if len(found.Postgres) > 0 {
+	if len(found.Database) > 0 {
 		sources[tpl("migrations_test.go.tpl")] = filepath.Join("tests", "migrations_test.go")
 	}
 	return sources
@@ -155,7 +155,8 @@ func plan(project *command.Project, own hooks) (map[string]any, found, error) {
 		"InitArgs":     locals(s.Params),
 		"Resources":    registry(s),
 		"Migrations":   migrations,
-		"Postgres":     s.Postgres,
+		"Database":     s.Database,
+		"Dialect":      s.Dialect,
 		"Redis":        s.Redis,
 		"Logger":       s.Logger,
 		"Hilton":       s.Hilton,
@@ -262,7 +263,7 @@ func imports(s shape, own hooks, migrations []map[string]string, container, pkg 
 		add("", "github.com/cucumber/godog")
 	}
 	add(pkg, container)
-	if len(s.Postgres) > 0 {
+	if len(s.Database) > 0 {
 		std = append(std, "io/fs")
 		add("", "gitlab.com/gorib/sql/sqltest")
 		add("waffleMigrate", "gitlab.com/gorib/waffle/tools/migrate")
@@ -352,8 +353,8 @@ func bootLocals(imported []map[string]string) map[string]bool {
 // Reset and Down then do nothing.
 func registry(s shape) []string {
 	var out []string
-	if len(s.Postgres) > 0 {
-		out = append(out, "postgres")
+	if s.Dialect != nil {
+		out = append(out, s.Dialect.Name)
 	}
 	if len(s.Redis) > 0 {
 		out = append(out, "cache")

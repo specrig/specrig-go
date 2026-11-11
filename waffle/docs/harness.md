@@ -38,7 +38,7 @@ clients, err := app.Serve()
 
 ### What is read off the container
 
-- **The systems.** A `gitlab.com/gorib/sql.Db` seam means postgres and every `domain/*/cmd/migrate`, in name order; a `gitlab.com/gorib/redis.Db` seam means redis.
+- **The systems.** A `gitlab.com/gorib/sql.Db` seam means a database and every `domain/*/cmd/migrate`, in name order: [mysql or sqlite](#mysql-and-sqlite) where the markup gives `sql.NewDb` that driver as a literal, postgres otherwise; a `gitlab.com/gorib/redis.Db` seam means redis.
 - **The recorders.** A seam of `pry.Logger`, `hilton.Provider`, `scribus.Consumer` or `amqp.Publisher` — or of the service's own interface over a publisher built by `amqp.NewPublisher` — gets the recording implementation, handed back on `App`. A `di.Tags` collection of one of these types is left alone: one recorder is not a list.
 - **The trace.** Every call, event and command that crosses the service's edge is traced for [flows](flows.md#the-suites-record): the suite's calls, the typed clients a scenario replaced, the requests the HTTP stand-ins answer, the publishers, and the container's commands — single ones and `di.Tags` collections of them — behind getters `App` shadows.
 - **The dead connections.** Every `grpc.ClientConnInterface` seam becomes `grpcClient.Dead(...)`, labelled with the typed clients built on it and the variables its constructor reads: `customer.AccountServiceClient, customer.CustomersServiceClient (AUSWEIS_HOST, AUSWEIS_PORT)`. Both halves are facts of the container; nothing is inferred from how a service names its variables.
@@ -181,6 +181,36 @@ The drop uses `with (force)` — **postgres 13 or later**: our own pool is close
 
 Truncation, not a database per scenario, and not a pinned transaction: the scenario talks to the service over a real connection, and context values do not cross that boundary.
 
+## MySQL and SQLite
+
+The dialect is read off the markup, like everything else, but only where the markup states it: `di.Args{"driver": "mysql", "dsn": env.NeedValue[string]("DB_DSN")}`. The stock `config/service/sql` reads `DB_DRIVER`, which no file the generator reads says, and that has always meant postgres. Any other literal driver stops the run, naming it, and so do two seams of different dialects: the harness fills every seam with the one database.
+
+`waffleMigrate.Up` takes the goose dialect from the handle's driver, so the generated call is the postgres one. `App` carries the database under its dialect's name, `app.Mysql` or `app.Sqlite`: `FailWith`, `Refuse`, `RefuseAfter` and `Heal`. **There is no `RefuseCommit`** in either: MySQL has no deferred constraint at all, and the only thing that fails an SQLite commit on demand is a deferred foreign key, which `sql.NewError` reads as `ErrConflict`, so the case would test the conflict branch instead of a failed commit. Both need `gitlab.com/gorib/sql` v1.16.0 and `gitlab.com/gorib/waffle` v1.25.0 or later.
+
+### MySQL
+
+The postgres shape — the address chain, `Docker("mysql:8.4")` as root with no password, a reused container, `Ephemeral` and the sweep — with what MySQL lacks worked around: the creation mark is a `sqltest_mark` table's comment, the kept rows are `sqltest_kept_N` tables beside the service's, and `Down` kills the connections still on the database before dropping it. The container's DSN carries `parseTime=true`, which goose needs; a DSN of your own needs it too.
+
+**A reset touches only what a scenario changed.** Truncating, a trigger and an `AUTO_INCREMENT` are DDL in MySQL. Measured on a laptop, five tables:
+
+| | per reset |
+|---|---|
+| truncating every table and putting the rows back | ~188 ms |
+| only the tables whose `CHECKSUM TABLE` changed, by `DELETE` | ~3 ms untouched, ~13 ms after two inserts |
+| postgres, after the same two inserts | ~5 ms |
+
+So `Reset` compares checksums, deletes and refills the changed tables in one transaction, drops and recreates a trigger only where those rows would fire it, and sets a counter back only where a scenario moved it.
+
+### SQLite
+
+```go
+var sqlite = sqltest.NewSqlite(waffleMigrate.Up(orderMigrate.NewMigrations()))
+```
+
+**There is no address and no container.** `Provision` makes a file under the system's temporary directory, and `Down` removes it. A file costs nothing to create, so nothing is kept between runs and nothing is shared between processes: two packages under `go test ./...` never meet, and there is no sweep — a run killed before `Down` leaves its directory to the system's own clean-up. `CheckMigrations` gives each domain a file of its own the same way.
+
+`Reset` keeps the rows the migrations wrote, and `sqlite_sequence`, in a second file that only the resetting connection attaches. SQLite cannot switch a trigger off, so `Reset` drops the triggers and creates them again inside its transaction, with foreign keys off on that one connection.
+
 ## Redis
 
 `gitlab.com/gorib/redis/redistest` works from a `host:port`, and the address chain is the postgres one: explicit `Addr`, then `Env` in order, then `Docker`, with the container last so that CI never starts one. `Reset` is `FLUSHDB`; `Migrate` does nothing, because keys carry their own shape.
@@ -254,7 +284,7 @@ Elasticsearch tracks no connections per index, so the process id stands in for o
 A case about an outage breaks the client, not the server. Its step calls
 `app.Postgres.FailWith(nil)`, and from then on every client the resource handed
 out fails — the one the container already holds included — until the next
-`Reset`, or for postgres until `app.Postgres.Heal(ctx)`, which keeps the rows.
+`Reset`, or for a database until its `Heal(ctx)`, which keeps the rows.
 `nil` is a refused connection, `errors.Is(err, syscall.ECONNREFUSED)`;
 pass an error of your own for anything else, a timeout say.
 
@@ -297,8 +327,9 @@ step that refuses. The details are in the
 `gitlab.com/gorib/sql` v1.15.1 or later, so a service moves onto it before it
 regenerates the harness.
 
-`Postgres` and `Redis` are on `App` where the harness filled the seam, like a
-recorder; a scenario that supplied its own `SqlDb` gets no `Postgres`. They need
+The database — `Postgres`, `Mysql` or `Sqlite` — and `Redis` are on `App` where
+the harness filled the seam, like a recorder; a scenario that supplied its own
+`SqlDb` gets no database there. They need
 no grant in `replacements.allow`: the scenario replaces nothing. Elasticsearch is
 not generated, so it reaches `App` through the hooks:
 
@@ -342,7 +373,7 @@ Where to put it, by number of consumers — with no exception for gorib:
 
 **To let a step fail it,** hand out a wrapped client that reads one switch, set the switch in `FailWith`, and clear it first thing in `Reset`. A resource with that method is a `resource.Fault`, and the `extra` hook puts it on `App`.
 
-**Measure before choosing what to keep between runs.** All three existing resources start a container: postgres and elasticsearch keep it, redis disposes of it — see [Redis](#redis) for the two numbers that decide it. Take the reasoning from whichever one your system resembles, not the shape.
+**Measure before choosing what to keep between runs.** Four of the existing resources start a container: postgres, mysql and elasticsearch keep it, redis disposes of it — see [Redis](#redis) for the two numbers that decide it. SQLite is a file and starts none. Take the reasoning from whichever one your system resembles, not the shape.
 
 ## Choosing where to cut
 

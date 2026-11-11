@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -30,7 +31,8 @@ var (
 // Every list holds Replacements fields: a type the container carries twice is
 // filled twice.
 type shape struct {
-	Postgres     []string
+	Database     []string
+	Dialect      *dialect
 	Redis        []string
 	Logger       []string
 	Hilton       []string
@@ -110,6 +112,8 @@ func read(container waffle.Container, importPath string, seams []waffle.Seam) (s
 	out := shape{Imports: waffle.ImportAliases(file)}
 	collections := collectionFields(file)
 	built := constructors(file)
+	body := waffle.InitAppWithBody(file)
+	graph := readGraph(fset, file, body)
 	types := map[string]waffle.TypeRef{}
 	for _, seam := range seams {
 		if seam.Composite() || collections[seam.Field] {
@@ -119,7 +123,17 @@ func read(container waffle.Container, importPath string, seams []waffle.Seam) (s
 		types[seam.Field] = ref
 		switch ref {
 		case sqlDb:
-			out.Postgres = append(out.Postgres, seam.Field)
+			driver := graph.driver(seam.Field)
+			found := dialectOf(driver)
+			if found == nil {
+				return shape{}, fmt.Errorf("%s builds %s with the driver %q, and sqltest has a "+
+					"database for postgres, mysql and sqlite only", container.File, seam.Field, driver)
+			}
+			if out.Dialect != nil && out.Dialect != found {
+				return shape{}, fmt.Errorf("%s builds one gitlab.com/gorib/sql.Db for %s and another for %s, "+
+					"and the harness fills every one with the same database", container.File, out.Dialect.Name, found.Name)
+			}
+			out.Dialect, out.Database = found, append(out.Database, seam.Field)
 		case redisDb:
 			out.Redis = append(out.Redis, seam.Field)
 		case pryLogger:
@@ -150,8 +164,6 @@ func read(container waffle.Container, importPath string, seams []waffle.Seam) (s
 		return shape{}, fmt.Errorf("%s: %w", container.File, err)
 	}
 
-	body := waffle.InitAppWithBody(file)
-	graph := readGraph(fset, file, body)
 	for i := range out.Dead {
 		out.Dead[i].Label = graph.label(out.Dead[i].Field, types)
 	}
@@ -276,7 +288,7 @@ func commandName(field string) string {
 // reaches the constructors under these fields and never reads their variables.
 func (s shape) filled() map[string]bool {
 	out := map[string]bool{}
-	for _, list := range [][]string{s.Postgres, s.Redis, s.Logger, s.Hilton, s.Consumer, s.Publisher} {
+	for _, list := range [][]string{s.Database, s.Redis, s.Logger, s.Hilton, s.Consumer, s.Publisher} {
 		for _, field := range list {
 			out[field] = true
 		}
@@ -403,11 +415,13 @@ type block struct {
 	guards []string // Replacements fields
 	reads  map[string]bool
 	keys   []string
+	driver string // what sql.NewDb is given, when it is a literal
 }
 
 func readGraph(fset *token.FileSet, file *ast.File, body *ast.BlockStmt) graph {
 	g := graph{owner: map[string]string{}}
 	if body != nil {
+		imports := waffle.ImportAliases(file)
 		stmts, locals := waffle.BuildStatements(body), waffle.Locals(body)
 		for _, stmt := range stmts {
 			if field, seam, ok := waffle.PrologueAssignment(stmt); ok {
@@ -423,7 +437,7 @@ func readGraph(fset *token.FileSet, file *ast.File, body *ast.BlockStmt) graph {
 			if len(guards) == 0 {
 				continue
 			}
-			b := block{guards: guards, reads: waffle.ContainerReads(guarded.Body, locals)}
+			b := block{guards: guards, reads: waffle.ContainerReads(guarded.Body, locals), driver: sqlDriver(guarded.Body, imports)}
 			for _, read := range envReads(fset, file, guarded.Body, nil) {
 				b.keys = append(b.keys, read.Key)
 			}
@@ -432,6 +446,37 @@ func readGraph(fset *token.FileSet, file *ast.File, body *ast.BlockStmt) graph {
 	}
 	g.reads = envReads(fset, file, file, g.owners)
 	return g
+}
+
+func sqlDriver(body *ast.BlockStmt, imports map[string]string) string {
+	var out string
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || len(call.Args) == 0 {
+			return true
+		}
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || selector.Sel.Name != "NewDb" {
+			return true
+		}
+		if pkg, ok := selector.X.(*ast.Ident); !ok || imports[pkg.Name] != sqlDb.Path {
+			return true
+		}
+		if literal, ok := call.Args[0].(*ast.BasicLit); ok && literal.Kind == token.STRING {
+			out, _ = strconv.Unquote(literal.Value)
+		}
+		return false
+	})
+	return out
+}
+
+func (g graph) driver(field string) string {
+	for _, b := range g.blocks {
+		if b.driver != "" && slices.Contains(b.guards, field) {
+			return b.driver
+		}
+	}
+	return ""
 }
 
 func (g graph) owners(fields []string) []string {

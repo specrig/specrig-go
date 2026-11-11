@@ -45,9 +45,11 @@ are, and what goes in the one you write, is
 Everything in the generated file comes from the container rather than from a
 flag, because a flag would close a set the container already knows:
 
-- **the systems.** A seam of type `gitlab.com/gorib/sql.Db` means postgres, and
-  the harness gets `sqltest` plus every `domain/*/cmd/migrate` it finds, in name
-  order; a `gitlab.com/gorib/redis.Db` seam means `redistest`. Without either —
+- **the systems.** A seam of type `gitlab.com/gorib/sql.Db` means a database —
+  mysql or sqlite where the markup gives `sql.NewDb` that driver as a literal,
+  postgres otherwise — and the harness gets `sqltest` plus every `domain/*/cmd/migrate`
+  it finds, in name order; a `gitlab.com/gorib/redis.Db` seam means `redistest`.
+  Without either —
   an API gateway, a proxy — the set is `resource.New()`, whose `Up`, `Reset` and
   `Down` do nothing.
 - **the transports.** `NewGrpcCommand` in the container gives an in-process gRPC

@@ -314,7 +314,7 @@ workflow that gets abandoned at the first step that does not work.
   enforces them — see [specrig](https://github.com/specrig/specrig).
 - **the component harness**, as libraries — see
   [Component harness](harness.md). The resource seam is
-  specrig-go's `resource`; postgres, redis and elasticsearch are `sql/sqltest`,
+  specrig-go's `resource`; postgres, mysql and sqlite, redis and elasticsearch are `sql/sqltest`,
   `redis/redistest` and `elastic/elastictest`; the in-process servers are
   `waffle/tools/grpc.Serve`,
   chaining interceptors with the same `UnaryChain` the daemon uses, and

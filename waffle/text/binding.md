@@ -52,16 +52,17 @@ because a scenario was inconvenient.
 - a **no-op** keeps nothing, so no `Then` can read it.
 
 An outage is not a replacement: the step calls `app.Postgres.FailWith(nil)` —
-`Redis` and `Publisher` likewise — and the next `Reset` heals it. Do not ask for
-a grant on the client to fake one.
+`Mysql`, `Sqlite`, `Redis` and `Publisher` likewise — and the next `Reset` heals
+it. Do not ask for a grant on the client to fake one.
 
 A write that fails halfway is not an outage either: `app.Postgres.Refuse(ctx,
 table)` makes one table refuse writes, `RefuseAfter(ctx, table, rows)` lets that
 many rows through first, and reads keep working, so a `Then` can check what the
 failed write left. `RefuseCommit(ctx, table)` fails only the commit, for what
-must not get out before it. `app.Postgres.Heal(ctx)` is the database coming back:
-it ends the fault and every refusal and keeps the rows. Do not create triggers by
-hand: `Heal` and `Reset` lift only these.
+must not get out before it; `app.Mysql` and `app.Sqlite` have the rest and not
+this. `app.Postgres.Heal(ctx)` is the database coming back: it ends the fault
+and every refusal and keeps the rows. Do not create triggers by hand: `Heal` and
+`Reset` lift only these.
 
 A neighbour over HTTP is not a replacement either, where its transport comes from
 the container: the harness stands in for it under the client, and a step says what
