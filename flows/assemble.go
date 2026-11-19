@@ -339,18 +339,18 @@ func (r route) branches(s step, id string) ([]Branch, []folded) {
 	isFolded := func(m string) bool { return slices.ContainsFunc(by, func(f folded) bool { return f.message == m }) }
 	whole := map[string]bool{}
 	for _, b := range s.input.Branches {
-		if !slices.ContainsFunc(b.Sends, isFolded) {
-			for _, m := range b.Sends {
+		if !slices.ContainsFunc(b.messages(), isFolded) {
+			for _, m := range b.messages() {
 				whole[m] = true
 			}
 		}
 	}
 	var out []Branch
 	for _, b := range s.input.Branches {
-		lost := slices.ContainsFunc(b.Sends, isFolded)
-		b.Sends = slices.DeleteFunc(slices.Clone(b.Sends), isFolded)
+		lost := slices.ContainsFunc(b.messages(), isFolded)
+		b.Sends = without(b.Sends, isFolded)
 		// Its cases sent what this flow cannot; it stays only for what no other branch sends.
-		if lost && !b.refused() && !slices.ContainsFunc(b.Sends, func(m string) bool { return !whole[m] }) {
+		if lost && !b.refused() && !slices.ContainsFunc(b.messages(), func(m string) bool { return !whole[m] }) {
 			continue
 		}
 		out = append(out, b)
@@ -383,7 +383,7 @@ func sequence(branches []Branch) []send {
 		if b.refused() {
 			continue
 		}
-		order := sends(b.Sends)
+		order := sends(b.messages())
 		for i, s := range order {
 			nodes[s] = true
 			for _, later := range order[i+1:] {

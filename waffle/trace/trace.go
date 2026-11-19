@@ -1,6 +1,6 @@
 // Package trace records what crosses a waffle service's edge in a suite — its
 // gRPC and HTTP calls, its commands, the messages waffle's tools move — into the
-// records flows/1 is written from.
+// records flows/2 is written from.
 package trace
 
 import (

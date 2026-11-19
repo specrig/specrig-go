@@ -10,8 +10,8 @@ on waffle.
 | [rules](rules) | rules/1: the modes and classes of the protocol's table, a service's areas with its marker's merged in and checked, and the document a stack's tool prints for the plugin |
 | [cli](cli) | the commands every stack's tool answers — `init`, which lays a service out for specrig; `rules`; and `agents`, which writes `specrig.md` and fails while `AGENTS.md` does not bring it in — with what differs by framework in a `Preset`, an adapter's own commands among it |
 | [surface](surface) | the `surface/1` record, and the check of a set of them against each other |
-| [trace](trace) | what crossed a service's edge during a run, the records `flows/1` is written from |
-| [flows](flows) | `flows/1`: a suite's record written from its trace, and `index/1`: a project's flows assembled from its services' records |
+| [trace](trace) | what crossed a service's edge during a run, the records `flows/2` is written from |
+| [flows](flows) | `flows/2`: a suite's record written from its trace, and `index/1`: a project's flows assembled from its services' records |
 | [cmd/specrig-flows](cmd/specrig-flows) | the command that assembles them, for a project on any stack |
 | [resource](resource) | the seam between a component test and the external systems it runs against for real |
 | [standin](standin) | the stand-in for a service's HTTP neighbour: it answers what the steps declared, holds or times out a call on request, checks the traffic against the neighbour's OpenAPI document and keeps what was sent |

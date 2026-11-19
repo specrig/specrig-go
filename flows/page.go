@@ -66,7 +66,7 @@ func page(p project, f Flow, entry bool) []byte {
 		}
 		_, by := r.branches(s, id)
 		for _, f := range by {
-			fmt.Fprintf(&b, "- not followed here: %s — %s\n", p.branchName(s, Branch{Sends: []string{f.message}}), needing(f.missing))
+			fmt.Fprintf(&b, "- not followed here: %s — %s\n", p.branchName(s, Branch{Sends: sent(f.message)}), needing(f.missing))
 		}
 		fmt.Fprintf(&b, "\nIts cases: [%s](%s.md)\n", p.slug(s), p.slug(s))
 	}
@@ -106,7 +106,7 @@ func (p project) cases(b *strings.Builder, s step) {
 	svc := p.services[s.service]
 	var onward, rest []Branch
 	for _, br := range s.input.Branches {
-		if !br.refused() && slices.ContainsFunc(br.Sends, func(m string) bool { return len(p.receivers(s.service, m)) > 0 }) {
+		if !br.refused() && slices.ContainsFunc(br.messages(), func(m string) bool { return len(p.receivers(s.service, m)) > 0 }) {
 			onward = append(onward, br)
 		} else {
 			rest = append(rest, br)
@@ -130,7 +130,7 @@ func (p project) branchName(s step, br Branch) string {
 		return "refused: " + br.Refusal
 	}
 	var to []string
-	for _, m := range br.Sends {
+	for _, m := range br.messages() {
 		if receivers := p.receivers(s.service, m); len(receivers) > 0 {
 			var where []string
 			for _, r := range receivers {
@@ -292,7 +292,7 @@ func (d *diagram) from(id string, depth int) {
 	}
 	for _, f := range by {
 		fmt.Fprintf(d.b, "%sNote over %s: not followed: %s — %s\n", pad(), participant(s.service),
-			sequenceText(d.p.branchName(s, Branch{Sends: []string{f.message}})), sequenceText(needing(f.missing)))
+			sequenceText(d.p.branchName(s, Branch{Sends: sent(f.message)})), sequenceText(needing(f.missing)))
 	}
 }
 
@@ -306,7 +306,7 @@ func sending(in Input, s send) ([]int, bool) {
 			continue
 		}
 		answered++
-		if slices.Contains(sends(b.Sends), s) {
+		if slices.Contains(sends(b.messages()), s) {
 			who = append(who, i)
 		}
 	}

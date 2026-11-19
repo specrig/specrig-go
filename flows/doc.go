@@ -6,9 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"maps"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -21,7 +23,7 @@ import (
 var home, _ = os.Getwd()
 
 // Format is what this package writes under specrig: and the newest it reads.
-const Format = "flows/1"
+const Format = "flows/2"
 
 type Doc struct {
 	Specrig  string   `yaml:"specrig"`
@@ -40,7 +42,7 @@ type Input struct {
 }
 
 type Branch struct {
-	Sends       []string            `yaml:"sends,omitempty"`
+	Sends       []Send              `yaml:"sends,omitempty"`
 	Sent        map[string][]string `yaml:"sent,omitempty"`
 	Refusal     string              `yaml:"refused,omitempty"`
 	Description string              `yaml:"description,omitempty"`
@@ -48,6 +50,115 @@ type Branch struct {
 }
 
 func (b Branch) refused() bool { return b.Refusal != "" }
+
+func (b Branch) messages() []string { return messages(b.Sends) }
+
+// A message sent, or the sequences that ran side by side.
+type Send struct {
+	Message  string
+	Together [][]Send
+}
+
+func (s Send) MarshalYAML() (any, error) {
+	if s.Together == nil {
+		return s.Message, nil
+	}
+	return struct {
+		Together [][]Send `yaml:"together"`
+	}{s.Together}, nil
+}
+
+func (s *Send) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		return node.Decode(&s.Message)
+	}
+	var block struct {
+		Together [][]Send `yaml:"together"`
+	}
+	if err := node.Decode(&block); err != nil {
+		return err
+	}
+	s.Together = block.Together
+	return nil
+}
+
+func sent(messages ...string) []Send {
+	out := make([]Send, len(messages))
+	for i, m := range messages {
+		out[i] = Send{Message: m}
+	}
+	return out
+}
+
+func spell(seq []Send) string {
+	parts := make([]string, len(seq))
+	for i, s := range seq {
+		if s.Together == nil {
+			parts[i] = s.Message
+			continue
+		}
+		branches := make([]string, len(s.Together))
+		for j, b := range s.Together {
+			branches[j] = spell(b)
+		}
+		parts[i] = "[" + strings.Join(branches, " & ") + "]"
+	}
+	return strings.Join(parts, ", ")
+}
+
+func messages(seq []Send) []string {
+	var out []string
+	for _, s := range seq {
+		if s.Together == nil {
+			out = append(out, s.Message)
+		}
+		for _, b := range s.Together {
+			out = append(out, messages(b)...)
+		}
+	}
+	return out
+}
+
+// seq without the messages drop matches, side by side as what is left ran.
+func without(seq []Send, drop func(string) bool) []Send {
+	var out []Send
+	for _, s := range seq {
+		if s.Together == nil {
+			if !drop(s.Message) {
+				out = append(out, s)
+			}
+			continue
+		}
+		left := make([][]Send, len(s.Together))
+		for i, b := range s.Together {
+			left[i] = without(b, drop)
+		}
+		out = append(out, together(left)...)
+	}
+	return out
+}
+
+// Sequences that ran side by side, each written once in the order of its spelling;
+// one left alone is just itself.
+func together(branches [][]Send) []Send {
+	by := map[string][]Send{}
+	for _, b := range branches {
+		if len(b) > 0 {
+			by[spell(b)] = b
+		}
+	}
+	if len(by) < 2 {
+		for _, b := range by {
+			return b
+		}
+		return nil
+	}
+	out := make([][]Send, 0, len(by))
+	for _, k := range sorted(keys(by)) {
+		out = append(out, by[k])
+	}
+	return []Send{{Together: out}}
+}
 
 type Output struct {
 	Message string   `yaml:"message"`
@@ -65,7 +176,7 @@ func message(kind, name string) string { return kind + " " + name }
 func (i Input) anchor() string { return i.Message }
 
 func (b Branch) anchor(in Input) string {
-	a := in.Message + " -> " + strings.Join(b.Sends, ", ")
+	a := in.Message + " -> " + spell(b.Sends)
 	if b.refused() {
 		a += " (refused " + b.Refusal + ")"
 	}
@@ -130,13 +241,11 @@ func build(service string, records []trace.Record, cases features) Doc {
 				continue
 			}
 			m := message(r.Kind, r.Name)
-			k := key{sends: strings.Join(passes(settled(sent[i])), "\n"), refusal: r.Error}
+			sends := settled(r.Threads, sent[i])
+			k := key{sends: spell(sends), refusal: r.Error}
 			b := branches[m][k]
 			if b == nil {
-				b = &Branch{Refusal: k.refusal}
-				if k.sends != "" {
-					b.Sends = strings.Split(k.sends, "\n")
-				}
+				b = &Branch{Sends: sends, Refusal: k.refusal}
 				branches[m][k] = b
 				received[b] = &shape{}
 				sentFields[b] = map[string]map[string]bool{}
@@ -206,7 +315,7 @@ func (s *shape) add(got map[string]bool) {
 func needs(received map[*Branch]*shape, answered []*Branch) map[string][]string {
 	messages := map[string]bool{}
 	for _, b := range answered {
-		for _, m := range b.Sends {
+		for _, m := range b.messages() {
 			messages[m] = true
 		}
 	}
@@ -214,7 +323,7 @@ func needs(received map[*Branch]*shape, answered []*Branch) map[string][]string 
 	for m := range messages {
 		var with, without []*Branch
 		for _, b := range answered {
-			if slices.Contains(b.Sends, m) {
+			if slices.Contains(b.messages(), m) {
 				with = append(with, b)
 			} else {
 				without = append(without, b)
@@ -240,45 +349,80 @@ func needs(received map[*Branch]*shape, answered []*Branch) map[string][]string 
 	return out
 }
 
-// Goroutines started at one place send in an order of chance.
-func settled(sends []trace.Record) []string {
-	names := make([]string, len(sends))
-	places := map[string][]int{}
-	goroutines := map[string]map[uint64]bool{}
-	for i, r := range sends {
-		names[i] = message(r.Kind, r.Name)
-		if r.Spawned == "" {
-			continue
-		}
-		places[r.Spawned] = append(places[r.Spawned], i)
-		if goroutines[r.Spawned] == nil {
-			goroutines[r.Spawned] = map[uint64]bool{}
-		}
-		goroutines[r.Spawned][r.Goroutine] = true
+// What an input received on the goroutine root sent, each goroutine a sequence of
+// its own calls and of what it started.
+func settled(root []uint64, sends []trace.Record) []Send {
+	type thread struct {
+		own      []trace.Record
+		children map[uint64]bool
 	}
-	for spawned, at := range places {
-		if len(goroutines[spawned]) < 2 {
-			continue
+	threads := map[uint64]*thread{}
+	at := func(id uint64) *thread {
+		if threads[id] == nil {
+			threads[id] = &thread{children: map[uint64]bool{}}
 		}
-		together := make([]string, len(at))
-		for i, p := range at {
-			together[i] = names[p]
-		}
-		slices.Sort(together)
-		for i, p := range at {
-			names[p] = together[i]
-		}
+		return threads[id]
 	}
-	return names
+	var top uint64
+	if len(root) > 0 {
+		top = root[0]
+	}
+	at(top)
+	for _, r := range sends {
+		chain := r.Threads
+		if i := slices.Index(chain, top); i >= 0 {
+			chain = chain[:i]
+		}
+		parent := top
+		for j := len(chain) - 1; j >= 0; j-- {
+			at(parent).children[chain[j]] = true
+			parent = chain[j]
+		}
+		at(parent).own = append(at(parent).own, r)
+	}
+	first := map[uint64]int64{}
+	var earliest func(id uint64) int64
+	earliest = func(id uint64) int64 {
+		if s, ok := first[id]; ok {
+			return s
+		}
+		s := int64(math.MaxInt64)
+		if t := threads[id]; len(t.own) > 0 {
+			s = t.own[0].Seq
+		}
+		for c := range threads[id].children {
+			s = min(s, earliest(c))
+		}
+		first[id] = s
+		return s
+	}
+	var sequence func(id uint64) []Send
+	sequence = func(id uint64) []Send {
+		t := threads[id]
+		started := make([][][]Send, len(t.own)+1)
+		for c := range t.children {
+			k := sort.Search(len(t.own), func(i int) bool { return t.own[i].Seq > earliest(c) })
+			started[k] = append(started[k], sequence(c))
+		}
+		var out []Send
+		for k := range started {
+			out = append(out, together(started[k])...)
+			if k < len(t.own) {
+				out = append(out, Send{Message: message(t.own[k].Kind, t.own[k].Name)})
+			}
+		}
+		return passes(out)
+	}
+	return sequence(top)
 }
 
-func passes(sends []string) []string {
+func passes(sends []Send) []Send {
 	out := slices.Clone(sends)
 	for folded := true; folded; {
 		folded = false
 		for size := 1; size <= len(out)/2 && !folded; size++ {
 			for i := 0; i+2*size <= len(out); i++ {
-				if slices.Equal(out[i:i+size], out[i+size:i+2*size]) {
+				if spell(out[i:i+size]) == spell(out[i+size:i+2*size]) {
 					out = slices.Delete(out, i+size, i+2*size)
 					folded = true
 					break

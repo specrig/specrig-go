@@ -19,7 +19,7 @@ func projectOf(steps ...step) project {
 		doc := p.services[s.service].doc
 		doc.Inputs = append(doc.Inputs, s.input)
 		for _, b := range s.input.Branches {
-			for _, m := range b.Sends {
+			for _, m := range b.messages() {
 				doc.Outputs = append(doc.Outputs, Output{Message: m})
 			}
 		}
@@ -38,10 +38,10 @@ func in(service, message string, branches ...Branch) step {
 func TestWhatAStepSendsSitsUnderTheConditionThatReachedIt(t *testing.T) {
 	p := projectOf(
 		in("gateway", "http POST /pay",
-			Branch{Sends: []string{"grpc /pay.Pay/Charge"}, Cases: []string{"a", "b"}},
+			Branch{Sends: sent("grpc /pay.Pay/Charge"), Cases: []string{"a", "b"}},
 			Branch{Cases: []string{"c"}}),
 		in("pay", "grpc /pay.Pay/Charge",
-			Branch{Sends: []string{"event paid"}, Cases: []string{"d"}}),
+			Branch{Sends: sent("event paid"), Cases: []string{"d"}}),
 		in("books", "event paid", Branch{Cases: []string{"e"}}),
 	)
 	order, _ := p.walk("gateway: http POST /pay")
@@ -60,7 +60,7 @@ func TestWhatAStepSendsSitsUnderTheConditionThatReachedIt(t *testing.T) {
 
 func TestAStepFurtherOnLinksToItsOwnPageInsteadOfRepeatingItsCases(t *testing.T) {
 	p := projectOf(
-		in("gateway", "http POST /pay", Branch{Sends: []string{"grpc /pay.Pay/Charge"}, Cases: []string{"x.feature: Paying"}}),
+		in("gateway", "http POST /pay", Branch{Sends: sent("grpc /pay.Pay/Charge"), Cases: []string{"x.feature: Paying"}}),
 		in("pay", "grpc /pay.Pay/Charge",
 			Branch{Cases: []string{"pay.feature: A charge goes through"}},
 			Branch{Refusal: "NotFound method_not_found", Cases: []string{"pay.feature: An unknown method"}}),
@@ -85,7 +85,7 @@ func TestAStepFurtherOnLinksToItsOwnPageInsteadOfRepeatingItsCases(t *testing.T)
 func TestAStepManySendReachListsThemFolded(t *testing.T) {
 	var steps []step
 	for _, route := range []string{"/a", "/b", "/c", "/d"} {
-		steps = append(steps, in("gateway", "http GET "+route, Branch{Sends: []string{"grpc /auth.Auth/Summon"}, Cases: []string{"x"}}))
+		steps = append(steps, in("gateway", "http GET "+route, Branch{Sends: sent("grpc /auth.Auth/Summon"), Cases: []string{"x"}}))
 	}
 	p := projectOf(append(steps, in("auth", "grpc /auth.Auth/Summon", Branch{Cases: []string{"y"}}))...)
 	body := string(page(p, Flow{Id: "auth-grpc-auth-summon", Entry: "auth: grpc /auth.Auth/Summon", Steps: []string{"auth: grpc /auth.Auth/Summon"}}, false))
@@ -108,7 +108,7 @@ func TestALoopIsOnePassAndAReturnIsAStep(t *testing.T) {
 		{[]string{"otp", "render", "store", "otp"}, []string{"otp", "render", "store", "otp"}},
 		{[]string{"x", "a", "b", "a", "b", "y"}, []string{"x", "a", "b", "y"}},
 	} {
-		if got := passes(c.sent); !slices.Equal(got, c.want) {
+		if got := messages(passes(sent(c.sent...))); !slices.Equal(got, c.want) {
 			t.Errorf("passes(%v) = %v, want %v", c.sent, got, c.want)
 		}
 	}
@@ -119,7 +119,7 @@ func TestALoopIsOnePassAndAReturnIsAStep(t *testing.T) {
 func TestASendRepeatedAfterOthersIsDrawnWhereItHappened(t *testing.T) {
 	p := projectOf(
 		in("herald", "grpc /doc.Docs/Link", Branch{
-			Sends: []string{"grpc /media.Media/Link", "grpc /media.Media/Store", "grpc /media.Media/Link"},
+			Sends: sent("grpc /media.Media/Link", "grpc /media.Media/Store", "grpc /media.Media/Link"),
 			Cases: []string{"a"},
 		}),
 		in("media", "grpc /media.Media/Link", Branch{Cases: []string{"b"}}),
@@ -138,7 +138,7 @@ func TestASendRepeatedAfterOthersIsDrawnWhereItHappened(t *testing.T) {
 
 func TestAnEventBackToItsOwnSenderIsMarked(t *testing.T) {
 	p := projectOf(
-		in("rent", "command renew", Branch{Sends: []string{"event paid"}, Cases: []string{"a"}}),
+		in("rent", "command renew", Branch{Sends: sent("event paid"), Cases: []string{"a"}}),
 		in("rent", "event paid", Branch{Cases: []string{"b"}}),
 	)
 	order, _ := p.walk("rent: command renew")
@@ -197,7 +197,7 @@ func pageOfCases(t *testing.T, feature string, branches ...[]string) string {
 	root := t.TempDir()
 	input := Input{Message: "http POST /orders"}
 	for i, titles := range branches {
-		b := Branch{Sends: []string{"grpc /stock.S/Reserve"}}
+		b := Branch{Sends: sent("grpc /stock.S/Reserve")}
 		if i > 0 {
 			b = Branch{Refusal: fmt.Sprintf("HTTP 40%d", i)}
 		}
@@ -329,7 +329,7 @@ func TestARulesDescriptionStandsOnThePageOfEachInputOfItsCases(t *testing.T) {
     Scenario: Returning a book
       When it is sent
 `)
-	sends := []string{"grpc /stock.S/Reserve"}
+	sends := sent("grpc /stock.S/Reserve")
 	writeFile(t, filepath.Join(root, "shop", "tests", "flows.yaml"), string(encode(Doc{Specrig: Format, Service: "shop", Inputs: []Input{
 		{Message: "http POST /orders", Branches: []Branch{{Sends: sends, Cases: []string{"a.feature: Placing a book"}}}},
 		{Message: "http POST /returns", Branches: []Branch{{Sends: sends, Cases: []string{"a.feature: Returning a book"}}}},
@@ -767,24 +767,23 @@ func TestAMessageNeedsTheFieldsThatTellItsSendersApart(t *testing.T) {
 		t.Errorf("needs %v, want %v", doc.Inputs[0].Needs, want)
 	}
 	for _, b := range doc.Inputs[0].Branches {
-		if slices.Contains(b.Sends, "grpc /pay.Pay/ChargeMethod") && !slices.Equal(b.Sent["grpc /pay.Pay/ChargeMethod"], []string{"methodId"}) {
+		if slices.Contains(b.messages(), "grpc /pay.Pay/ChargeMethod") && !slices.Equal(b.Sent["grpc /pay.Pay/ChargeMethod"], []string{"methodId"}) {
 			t.Errorf("sent %v, want the fields of the charge", b.Sent)
 		}
 	}
 }
 
-func TestWhatGoroutinesStartedTogetherSendIsInTheOrderOfItsNames(t *testing.T) {
-	const handler, downloads = "grpc.(*Server).serveStreams in goroutine 1", "sync.(*WaitGroup).Go in goroutine 40"
+func TestWhatGoroutinesStartedTogetherSendIsWrittenTogetherInTheOrderOfItsSpelling(t *testing.T) {
 	create := func(seq int64, scenario string, first, second string, handled uint64) []trace.Record {
-		out := func(seq int64, kind, name string, goroutine uint64, spawned string) trace.Record {
-			return trace.Record{Seq: seq, Scenario: scenario, Dir: "out", Kind: kind, Name: name, Goroutine: goroutine, Spawned: spawned}
+		out := func(seq int64, kind, name string, threads ...uint64) trace.Record {
+			return trace.Record{Seq: seq, Scenario: scenario, Dir: "out", Kind: kind, Name: name, Threads: threads}
 		}
 		return []trace.Record{
-			{Seq: seq, Scenario: scenario, Dir: "in", Kind: "grpc", Name: "/media.Media/Create"},
-			out(seq+1, "http", first, handled+1, downloads),
-			out(seq+2, "http", second, handled+2, downloads),
-			out(seq+3, "grpc", "/store.Store/Put", handled, handler),
-			out(seq+4, "grpc", "/audit.Audit/Log", handled, handler),
+			{Seq: seq, Scenario: scenario, Dir: "in", Kind: "grpc", Name: "/media.Media/Create", Threads: []uint64{handled, 1}},
+			out(seq+1, "http", first, handled+1, handled, 1),
+			out(seq+2, "http", second, handled+2, handled, 1),
+			out(seq+3, "grpc", "/store.Store/Put", handled, 1),
+			out(seq+4, "grpc", "/audit.Audit/Log", handled, 1),
 		}
 	}
 	doc := build("media", slices.Concat(
@@ -792,9 +791,9 @@ func TestWhatGoroutinesStartedTogetherSendIsInTheOrderOfItsNames(t *testing.T) {
 		create(6, "TestFeatures/B", "GET /img/1.png", "GET /img/2.png", 50),
 	), features{})
 
-	want := []string{"http GET /img/1.png", "http GET /img/2.png", "grpc /store.Store/Put", "grpc /audit.Audit/Log"}
-	if len(doc.Inputs[0].Branches) != 1 || !slices.Equal(doc.Inputs[0].Branches[0].Sends, want) {
-		t.Errorf("branches %+v, want one sending %v", doc.Inputs[0].Branches, want)
+	want := "http GET /img/1.png" + " & " + "http GET /img/2.png"
+	if len(doc.Inputs[0].Branches) != 1 || spell(doc.Inputs[0].Branches[0].Sends) != "["+want+"], grpc /store.Store/Put, grpc /audit.Audit/Log" {
+		t.Errorf("branches %+v, want one sending [%s] before the store and the audit", doc.Inputs[0].Branches, want)
 	}
 }
 
@@ -828,13 +827,13 @@ func TestAFieldCorrelatedInTheFixturesIsNoNeed(t *testing.T) {
 
 func TestASendWhoseNeedsNothingCarriesIsFoldedToANote(t *testing.T) {
 	gateway := in("gateway", "http POST /payments",
-		Branch{Sends: []string{"grpc /auth.Auth/Summon", "grpc /pay.Pay/Charge"}, Cases: []string{"b"}},
-		Branch{Sends: []string{"grpc /auth.Auth/Summon", "grpc /pay.Pay/ChargeMethod"}, Cases: []string{"c"}})
+		Branch{Sends: sent("grpc /auth.Auth/Summon", "grpc /pay.Pay/Charge"), Cases: []string{"b"}},
+		Branch{Sends: sent("grpc /auth.Auth/Summon", "grpc /pay.Pay/ChargeMethod"), Cases: []string{"c"}})
 	gateway.input.Needs = map[string][]string{"grpc /pay.Pay/Charge": {"gateway"}, "grpc /pay.Pay/ChargeMethod": {"methodId"}}
 	paying := func(entry string, fields ...string) project {
 		return projectOf(
 			in("portal", entry, Branch{
-				Sends: []string{"http POST /payments"},
+				Sends: sent("http POST /payments"),
 				Sent:  map[string][]string{"http POST /payments": fields},
 				Cases: []string{"a"},
 			}),

@@ -1,35 +1,26 @@
 package trace
 
 import (
-	"strings"
+	"slices"
 	"sync"
 	"testing"
 )
 
-func TestACallKeepsTheGoroutineThatBeganItAndWhereThatOneWasStarted(t *testing.T) {
+func TestACallKeepsEveryGoroutineThatLedToIt(t *testing.T) {
 	Enable("shop")
-	began := make(chan int64, 2)
-	var wg sync.WaitGroup
-	for range 2 {
-		wg.Go(func() { began <- Begin() })
-	}
-	wg.Wait()
-	close(began)
-	for n := range began {
-		Write(Record{Seq: n, Dir: "out", Kind: "http", Name: "GET /images"})
-	}
+	var carriers sync.WaitGroup
+	carriers.Go(func() {
+		var trucks sync.WaitGroup
+		trucks.Go(func() { Write(Record{Dir: "out", Kind: "http", Name: "POST /rates"}) })
+		trucks.Wait()
+	})
+	carriers.Wait()
 	Write(Record{Dir: "out", Kind: "http", Name: "GET /stock"})
 
 	records := Records()
-	images, stock := records[len(records)-3:len(records)-1], records[len(records)-1]
-	if !strings.HasPrefix(images[0].Spawned, "sync.(*WaitGroup).Go in goroutine ") || images[0].Spawned != images[1].Spawned {
-		t.Errorf("spawned %q and %q, want both by the wait group", images[0].Spawned, images[1].Spawned)
-	}
-	if images[0].Goroutine == 0 || images[0].Goroutine == images[1].Goroutine {
-		t.Errorf("goroutines %d and %d, want two", images[0].Goroutine, images[1].Goroutine)
-	}
-	if stock.Goroutine == images[0].Goroutine || stock.Spawned == images[0].Spawned {
-		t.Errorf("the test's own call is kept as %d %q", stock.Goroutine, stock.Spawned)
+	rates, stock := records[len(records)-2], records[len(records)-1]
+	if len(rates.Threads) != len(stock.Threads)+2 || !slices.Equal(rates.Threads[2:], stock.Threads) {
+		t.Errorf("the truck's call is kept on %v, the test's own on %v; want the truck, its carrier, then the test's", rates.Threads, stock.Threads)
 	}
 }
 

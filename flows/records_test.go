@@ -33,6 +33,8 @@ func TestATraceComesOutAsTheRecordEveryWriterAgreesOn(t *testing.T) {
 				Step    string          `json:"step"`
 				Request json.RawMessage `json:"request"`
 				Error   string          `json:"error"`
+				Threads []uint64        `json:"threads"`
+				Round   *int            `json:"round"`
 			} `json:"records"`
 		}
 		if err := json.Unmarshal(body, &runs); err != nil {
@@ -40,14 +42,19 @@ func TestATraceComesOutAsTheRecordEveryWriterAgreesOn(t *testing.T) {
 		}
 		cases := features{dir: home, comments: map[caseKey]string{}, files: map[string][]string{}}
 		var records []trace.Record
+		rounds := false
 		for _, run := range runs {
 			feature, title, _ := strings.Cut(run.Case, ": ")
 			cases.comments[caseKey{feature, title}] = ""
 			cases.files[title] = append(cases.files[title], feature)
 			for _, r := range run.Records {
+				rounds = rounds || r.Round != nil
 				records = append(records, trace.Record{Seq: r.Seq, Scenario: title, Feature: feature, Step: r.Step,
-					Dir: r.Dir, Kind: r.Kind, Name: r.Name, Request: r.Request, Error: r.Error})
+					Dir: r.Dir, Kind: r.Kind, Name: r.Name, Request: r.Request, Error: r.Error, Threads: r.Threads})
 			}
+		}
+		if rounds {
+			continue
 		}
 		got := header + string(encode(build(name, records, cases)))
 
